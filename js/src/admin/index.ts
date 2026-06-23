@@ -19,7 +19,7 @@ function currentHandle(): string {
   return `@${slug || 'community'}@${window.location.host}`;
 }
 
-export default [
+export const extend = [
   new Extend.Admin()
     .setting(() => ({
       setting: `${KEY}.enabled`,
