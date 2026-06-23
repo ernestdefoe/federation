@@ -34,7 +34,7 @@ export const extend = [
       help: t('username_help'),
       placeholder: 'community',
     }))
-    .setting(
+    .customSetting(
       () =>
         m('.Form-group', [
           m('label', t('handle_label')),
