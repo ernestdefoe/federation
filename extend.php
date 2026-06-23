@@ -6,16 +6,14 @@
  * ActivityPub federation for Flarum 2. MIT licensed.
  */
 
+use ErnestDefoe\Federation\Api\ForumFederationFields;
+use ErnestDefoe\Federation\Api\UserFederationFields;
 use ErnestDefoe\Federation\Controller;
-use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\Listener\AnnouncePost;
-use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
-use Flarum\Api\Schema;
 use Flarum\Extend;
 use Flarum\Post\Event\Posted;
-use Flarum\User\User;
 
 return [
     (new Extend\Frontend('admin'))
@@ -53,33 +51,13 @@ return [
         ->listen(Posted::class, AnnouncePost::class),
 
     // ---- Forum payload: the community handle + per-user handle ---------------
+    // Invokable field classes (not closures) so Settings is constructor-injected.
+    // `federationEnabled` is exposed ONLY here — registering it again via
+    // Extend\Settings()->serializeToForum() would double-write the same JSON:API
+    // attribute, so that registration was removed.
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Boolean::make('federationEnabled')
-                ->get(fn () => resolve(Settings::class)->enabled()),
-            Schema\Str::make('federationHandle')
-                ->nullable()
-                ->get(function () {
-                    $settings = resolve(Settings::class);
-
-                    return $settings->enabled() ? $settings->handle() : null;
-                }),
-        ]),
+        ->fields(ForumFederationFields::class),
 
     (new Extend\ApiResource(UserResource::class))
-        ->fields(fn () => [
-            Schema\Str::make('federationHandle')
-                ->nullable()
-                ->get(function (User $user) {
-                    $settings = resolve(Settings::class);
-
-                    return ($settings->enabled() && ! $user->is_federated)
-                        ? $settings->previewUserHandle($user)
-                        : null;
-                }),
-        ]),
-
-    // ---- Settings consumed by the admin UI ----------------------------------
-    (new Extend\Settings())
-        ->serializeToForum('federationEnabled', Federation::PREFIX . 'enabled', fn ($v) => (bool) $v),
+        ->fields(UserFederationFields::class),
 ];

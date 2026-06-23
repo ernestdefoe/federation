@@ -60,17 +60,24 @@ class RemoteUserSync
     private function uniqueLocalUsername(string $base): string
     {
         $base = preg_replace('/[^a-zA-Z0-9_-]/', '', $base) ?: 'fediverse';
-        $candidate = $base;
-        $i = 0;
-        while (User::where('username', $candidate)->exists()) {
-            // Bounded: after enough collisions, fall back to a random suffix so
-            // an HTTP request can never spin here indefinitely.
-            if (++$i > 100) {
-                return 'fedi-'.substr(sha1($base.random_bytes(4)), 0, 12);
+
+        // One query instead of up to 100 DB round-trips on the inbox request:
+        // pull existing collisions ({base}% — a superset is harmless) and resolve
+        // the first free suffix in PHP. Usernames are matched case-insensitively.
+        $taken = User::where('username', 'like', $base.'%')
+            ->pluck('username')
+            ->map(fn ($u) => strtolower((string) $u))
+            ->flip();
+
+        if (! $taken->has(strtolower($base))) {
+            return $base;
+        }
+        for ($i = 1; $i <= 1000; $i++) {
+            if (! $taken->has(strtolower($base.$i))) {
+                return $base.$i;
             }
-            $candidate = $base.$i;
         }
 
-        return $candidate;
+        return 'fedi-'.substr(sha1($base.random_bytes(4)), 0, 12);
     }
 }

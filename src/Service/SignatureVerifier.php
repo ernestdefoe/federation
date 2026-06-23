@@ -14,6 +14,14 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 class SignatureVerifier
 {
+    /**
+     * Max allowed difference between the signed Date header and now. The Date is
+     * part of the signed string, so an attacker cannot adjust it without
+     * invalidating the signature; rejecting stale dates blocks replay of a
+     * captured request. Matches Mastodon's freshness window.
+     */
+    private const MAX_CLOCK_SKEW_SECONDS = 30;
+
     public function __construct(
         protected ActorFetcher $fetcher,
     ) {}
@@ -62,10 +70,30 @@ class SignatureVerifier
             return null;
         }
 
-        // Return the signing actor URI (the key owner if published, else keyId).
+        // Anti-replay: the Date is signed, so reject anything outside the window.
+        if (! $this->dateIsFresh($request->getHeaderLine('Date'))) {
+            return null;
+        }
+
+        // Return the signing actor URI (the key owner if published, else keyId),
+        // normalised (fragment stripped) so callers can do strict equality.
         $owner = (string) ($actor['publicKey']['owner'] ?? $actor['id'] ?? $params['keyId']);
 
-        return strtok($owner, '#') ?: $owner;
+        return trim(strtok($owner, '#') ?: $owner);
+    }
+
+    /** True when the signed Date header is present and within the skew window. */
+    private function dateIsFresh(string $date): bool
+    {
+        if ($date === '') {
+            return false;
+        }
+        $ts = strtotime($date);
+        if ($ts === false) {
+            return false;
+        }
+
+        return abs(time() - $ts) <= self::MAX_CLOCK_SKEW_SECONDS;
     }
 
     /** @return array<string,string> */

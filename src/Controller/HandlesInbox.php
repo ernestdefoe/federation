@@ -11,8 +11,10 @@ use ErnestDefoe\Federation\Service\RemoteUserSync;
 use ErnestDefoe\Federation\Service\Settings;
 use ErnestDefoe\Federation\Service\SignatureVerifier;
 use Flarum\Post\CommentPost;
+use Flarum\Post\Event\Posted;
 use Flarum\Post\Post;
 use Flarum\User\User;
+use Illuminate\Contracts\Events\Dispatcher as Events;
 use Illuminate\Support\Carbon;
 use Laminas\Diactoros\Response\EmptyResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -39,18 +41,22 @@ trait HandlesInbox
 
     protected DocumentBuilder $documents;
 
+    protected Events $events;
+
     public function __construct(
         Settings $settings,
         SignatureVerifier $verifier,
         ActorFetcher $fetcher,
         RemoteUserSync $remoteUsers,
         DocumentBuilder $documents,
+        Events $events,
     ) {
         parent::__construct($settings);
         $this->verifier = $verifier;
         $this->fetcher = $fetcher;
         $this->remoteUsers = $remoteUsers;
         $this->documents = $documents;
+        $this->events = $events;
     }
 
     protected function processInbox(ServerRequestInterface $request, ?User $target): ResponseInterface
@@ -79,9 +85,13 @@ trait HandlesInbox
     }
 
     /**
-     * True when the actor claimed in the body is the same actor that signed the
-     * request (exact match, or — tolerating minor implementation differences —
-     * the same host). Anything else is a spoofing attempt.
+     * True only when the actor claimed in the body is exactly the actor that
+     * signed the request (case-insensitive, #fragment ignored).
+     *
+     * No host-only fallback: a signature from one account must NOT authorise
+     * activities claiming to come from a DIFFERENT account on the same server —
+     * otherwise any user on a shared host (mastodon.social, …) could forge
+     * follows/replies as any other user there.
      */
     protected function actorAuthorized(string $signedBy, string $claimed): bool
     {
@@ -90,13 +100,8 @@ trait HandlesInbox
         }
         $a = strtok($signedBy, '#') ?: $signedBy;
         $b = strtok($claimed, '#') ?: $claimed;
-        if (strcasecmp($a, $b) === 0) {
-            return true;
-        }
-        $ah = parse_url($a, PHP_URL_HOST);
-        $bh = parse_url($b, PHP_URL_HOST);
 
-        return $ah && $bh && strcasecmp($ah, $bh) === 0;
+        return strcasecmp($a, $b) === 0;
     }
 
     private function handleFollow(array $activity, ?User $target, string $signedBy): void
@@ -168,7 +173,12 @@ trait HandlesInbox
         if ($text === '') {
             return;
         }
-        $created = isset($obj['published']) ? Carbon::parse($obj['published']) : Carbon::now();
+        // A malformed remote `published` must not 500 our inbox.
+        try {
+            $created = isset($obj['published']) ? Carbon::parse($obj['published']) : Carbon::now();
+        } catch (\Throwable) {
+            $created = Carbon::now();
+        }
 
         $post = new CommentPost;
         $post->discussion_id = $discussion->id;
@@ -181,6 +191,16 @@ trait HandlesInbox
         $discussion->refreshCommentCount();
         $discussion->refreshLastPost();
         $discussion->save();
+
+        // Let the rest of Flarum react to the federated reply (subscriptions,
+        // search indexing, other Posted listeners). Wrapped so a misbehaving
+        // listener can't turn a successful import into a 500. announceReply(),
+        // also on Posted, no-ops here because the author is_federated.
+        try {
+            $this->events->dispatch(new Posted($post, $author));
+        } catch (\Throwable $e) {
+            // best-effort; the post is already saved
+        }
     }
 
     /**

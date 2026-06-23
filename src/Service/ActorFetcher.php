@@ -21,6 +21,7 @@ class ActorFetcher
         protected UrlGuard $guard,
         protected Cache $cache,
         protected LoggerInterface $log,
+        protected Client $http,
     ) {}
 
     /** Fetch (and cache) a remote actor document. Accepts an actor or key URL. */
@@ -34,20 +35,32 @@ class ActorFetcher
             return null;
         }
 
-        return $this->cache->remember('federation:actor:'.sha1($url), 3600, function () use ($url) {
-            try {
-                $headers = $this->signer->signHeaders(null, 'get', $url);
-                $headers['Accept'] = Federation::CTYPE;
-                $res = (new Client(['timeout' => 8]))->get($url, ['headers' => $headers, 'http_errors' => false]);
-                if ($res->getStatusCode() >= 200 && $res->getStatusCode() < 300) {
-                    return json_decode((string) $res->getBody(), true) ?: null;
-                }
-            } catch (\Throwable $e) {
-                $this->log->debug('[federation] fetchActor failed: '.$e->getMessage());
-            }
+        $key = 'federation:actor:'.sha1($url);
+        $cached = $this->cache->get($key);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-            return null;
-        });
+        $data = null;
+        try {
+            $headers = $this->signer->signHeaders(null, 'get', $url);
+            $headers['Accept'] = Federation::CTYPE;
+            $res = $this->http->get($url, ['timeout' => 8, 'headers' => $headers, 'http_errors' => false]);
+            if ($res->getStatusCode() >= 200 && $res->getStatusCode() < 300) {
+                $decoded = json_decode((string) $res->getBody(), true);
+                $data = is_array($decoded) ? $decoded : null;
+            }
+        } catch (\Throwable $e) {
+            $this->log->debug('[federation] fetchActor failed: '.$e->getMessage());
+        }
+
+        // Cache successes only — a transient failure (restart, rate-limit) must
+        // not poison the key for an hour and make a live actor look "gone".
+        if ($data !== null) {
+            $this->cache->put($key, $data, 3600);
+        }
+
+        return $data;
     }
 
     /** POST a signed activity to a single inbox. Returns the HTTP status, or 0. */
@@ -62,7 +75,8 @@ class ActorFetcher
         try {
             $body = json_encode($activity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $headers = $this->signer->signHeaders($signer, 'post', $inbox, $body);
-            $res = (new Client(['timeout' => 12]))->post($inbox, [
+            $res = $this->http->post($inbox, [
+                'timeout' => 12,
                 'headers' => $headers,
                 'body' => $body,
                 'http_errors' => false,
