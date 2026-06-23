@@ -4,7 +4,7 @@ import UserCard from 'flarum/forum/components/UserCard';
 import type ItemList from 'flarum/common/utils/ItemList';
 import type Mithril from 'mithril';
 
-declare const m: any;
+declare const m: import('mithril').Static;
 
 const KEY = 'ernestdefoe-federation';
 

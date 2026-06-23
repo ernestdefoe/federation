@@ -33,6 +33,9 @@ class Federation
 
     public const PREFIX = Settings::PREFIX;
 
+    /** Followers delivered per DeliverActivity job (bounded memory + payload). */
+    private const DELIVERY_CHUNK = 250;
+
     public function __construct(
         protected Settings $settings,
         protected DocumentBuilder $documents,
@@ -61,25 +64,19 @@ class Federation
 
             // Community followers (user_id null) → a boost from the community
             // actor (the actor they follow → lands in their home timeline).
-            $communityInboxes = $this->inboxesFor(
-                FederationFollower::whereNull('user_id')->get()
+            $this->deliverToFollowers(
+                FederationFollower::query()->whereNull('user_id'),
+                $this->documents->announceActivityForDiscussion($discussion),
+                null
             );
-            if ($communityInboxes) {
-                $this->bus->dispatch(new Job\DeliverActivity(
-                    $this->documents->announceActivityForDiscussion($discussion), $communityInboxes, null
-                ));
-            }
 
             // The author's own followers → the per-member Create, signed by them.
             if ($author) {
-                $authorInboxes = $this->inboxesFor(
-                    FederationFollower::where('user_id', $author->id)->get()
+                $this->deliverToFollowers(
+                    FederationFollower::query()->where('user_id', $author->id),
+                    $this->documents->createActivityForDiscussion($discussion),
+                    $author->id
                 );
-                if ($authorInboxes) {
-                    $this->bus->dispatch(new Job\DeliverActivity(
-                        $this->documents->createActivityForDiscussion($discussion), $authorInboxes, $author->id
-                    ));
-                }
             }
         } catch (\Throwable $e) {
             $this->log->debug('[federation] announceDiscussion skipped: '.$e->getMessage());
@@ -104,18 +101,9 @@ class Federation
                 : $this->settings->base().'/federation/followers';
             $link = $this->documents->discussionUrl($discussion).'/'.$post->number;
 
-            // Remote participants already in this thread.
+            // Remote participants already in this thread (bounded by thread size).
             $remoteInboxes = FederationUserData::whereIn('user_id', $discussion->posts()->pluck('user_id'))
-                ->where('is_federated', true)->pluck('federated_inbox')->filter()->all();
-            // The author's followers (replies aren't boosted to community followers
-            // to avoid flooding — following the community gives you new topics).
-            $followerInboxes = $author
-                ? $this->inboxesFor(FederationFollower::where('user_id', $author->id)->get())
-                : [];
-            $inboxes = array_values(array_unique(array_merge($followerInboxes, $remoteInboxes)));
-            if (! $inboxes) {
-                return;
-            }
+                ->where('is_federated', true)->pluck('federated_inbox')->filter()->unique()->values()->all();
 
             $published = ($post->created_at ?? \Carbon\Carbon::now())->toAtomString();
             $body = '';
@@ -147,10 +135,38 @@ class Federation
                     'cc' => [$followers],
                 ],
             ];
-            $this->bus->dispatch(new Job\DeliverActivity($activity, $inboxes, $author?->id));
+            // Thread participants → one bounded job; the author's followers →
+            // chunked jobs (replies aren't boosted to community followers —
+            // following the community gives you new topics, not every reply).
+            if ($remoteInboxes) {
+                $this->bus->dispatch(new Job\DeliverActivity($activity, $remoteInboxes, $author?->id));
+            }
+            if ($author) {
+                $this->deliverToFollowers(
+                    FederationFollower::query()->where('user_id', $author->id),
+                    $activity, $author->id
+                );
+            }
         } catch (\Throwable $e) {
             $this->log->debug('[federation] announceReply skipped: '.$e->getMessage());
         }
+    }
+
+    /**
+     * Dispatch one DeliverActivity per chunk of followers, so a community with
+     * tens of thousands of followers never materialises every inbox in memory or
+     * serialises a giant array into one queue payload.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $followerQuery  scoped FederationFollower query
+     */
+    private function deliverToFollowers($followerQuery, array $activity, ?int $signerId): void
+    {
+        $followerQuery->chunkById(self::DELIVERY_CHUNK, function ($rows) use ($activity, $signerId) {
+            $inboxes = $this->inboxesFor($rows);
+            if ($inboxes) {
+                $this->bus->dispatch(new Job\DeliverActivity($activity, $inboxes, $signerId));
+            }
+        });
     }
 
     /** @param \Illuminate\Support\Collection<FederationFollower> $rows */

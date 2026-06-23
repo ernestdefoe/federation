@@ -17,7 +17,8 @@ class FederationFollower extends AbstractModel
 {
     protected $table = 'federation_followers';
 
-    protected $guarded = [];
+    /** Explicit allow-list — populated from inbound Follow activities. */
+    protected $fillable = ['user_id', 'actor', 'inbox', 'shared_inbox'];
 
     /** The inbox to deliver to — the shared inbox if the server exposes one. */
     public function deliveryInbox(): ?string

@@ -7,6 +7,7 @@ use ErnestDefoe\Federation\FederationUserData;
 use Flarum\Foundation\Config;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 /**
@@ -96,17 +97,40 @@ class Settings
         if ($ap = Fed::apUsername($user)) {
             return $ap;
         }
-        $base = Str::slug($this->displayName($user), '_') ?: 'member';
-        $candidate = $base;
-        if (strcasecmp($candidate, $this->username()) === 0
-            || FederationUserData::where('ap_username', $candidate)->exists()) {
-            $candidate = $base.$user->id;
-        }
-        $data = Fed::ensure($user);
-        $data->ap_username = $candidate;
-        $data->save();
 
-        return $candidate;
+        $conn = FederationUserData::query()->getConnection();
+
+        return $conn->transaction(function () use ($user, $conn) {
+            // Lock the row so concurrent fetches for THIS user serialise.
+            $conn->table('federation_user_data')->insertOrIgnore(['user_id' => $user->id]);
+            $data = FederationUserData::whereKey($user->id)->lockForUpdate()->first();
+            $user->setRelation('federationData', $data);
+            if ($data->ap_username) {
+                return $data->ap_username;
+            }
+
+            $base = Str::slug($this->displayName($user), '_') ?: 'member';
+            $candidate = $base;
+            // Only real members hold an ap_username (mirrors leave it null).
+            if (strcasecmp($candidate, $this->username()) === 0
+                || FederationUserData::where('ap_username', $candidate)->where('is_federated', false)->exists()) {
+                $candidate = $base.$user->id;
+            }
+
+            try {
+                $data->ap_username = $candidate;
+                $data->save();
+            } catch (QueryException $e) {
+                // Lost the race for the bare slug against another new user — the
+                // unique index rejected it. Fall back to the id-suffixed form,
+                // which is unique per user.
+                $candidate = $base.$user->id;
+                $data->ap_username = $candidate;
+                $data->save();
+            }
+
+            return $candidate;
+        });
     }
 
     /** The member's username WITHOUT persisting (safe during serialization). */

@@ -1,28 +1,15 @@
 <?php
 
-use Flarum\Database\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 
 /*
- * The remote object URI a post was imported from (inbound federated reply), so
- * we de-duplicate redeliveries and can act on a remote Delete.
+ * Squashed. This migration originally added federated_object to the core posts
+ * table; 2026_06_24_000005 then moved it into the post_federation_meta companion
+ * table. Existing installs already ran the original and have the value migrated
+ * across by 000005; for FRESH installs this is now a no-op so we don't ALTER the
+ * (high-volume) posts table to add a column only to drop it moments later.
  */
-$column = Migration::addColumns('posts', [
-    'federated_object' => ['string', 'length' => 500, 'nullable' => true],
-]);
-
 return [
-    'up' => function (Builder $schema) use ($column) {
-        $column['up']($schema);
-        $schema->table('posts', function (Blueprint $table) {
-            $table->index('federated_object', 'posts_federated_object_index');
-        });
-    },
-    'down' => function (Builder $schema) use ($column) {
-        $schema->table('posts', function (Blueprint $table) {
-            $table->dropIndex('posts_federated_object_index');
-        });
-        $column['down']($schema);
-    },
+    'up' => function (Builder $schema) {},
+    'down' => function (Builder $schema) {},
 ];

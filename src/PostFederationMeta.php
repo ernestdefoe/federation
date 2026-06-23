@@ -22,7 +22,8 @@ class PostFederationMeta extends AbstractModel
 
     public $incrementing = false;
 
-    protected $guarded = [];
+    /** Explicit allow-list — written from inbound federated payloads. */
+    protected $fillable = ['post_id', 'federated_object'];
 
     public function post(): BelongsTo
     {

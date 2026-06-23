@@ -31,6 +31,7 @@ class ProcessInboxActivity implements ShouldQueue
     /**
      * @param  array<string,string>  $headers  lower-cased header name => value
      * @param  int|null  $targetUserId  the addressed member, or null = community
+     * @param  int  $receivedAt  unix time the request arrived (for freshness)
      */
     public function __construct(
         public string $method,
@@ -38,10 +39,11 @@ class ProcessInboxActivity implements ShouldQueue
         public array $headers,
         public string $rawBody,
         public ?int $targetUserId = null,
+        public int $receivedAt = 0,
     ) {}
 
     public function handle(InboxProcessor $processor): void
     {
-        $processor->process($this->method, $this->requestTarget, $this->headers, $this->rawBody, $this->targetUserId);
+        $processor->process($this->method, $this->requestTarget, $this->headers, $this->rawBody, $this->targetUserId, $this->receivedAt);
     }
 }

@@ -43,6 +43,7 @@ trait HandlesInbox
             SignatureVerifier::normaliseHeaders($request),
             (string) $request->getBody(),
             $target?->id,
+            time(), // receipt time — freshness is checked against this, not job-run time
         ));
 
         return new EmptyResponse(202);

@@ -41,7 +41,10 @@ return [
                 $table->string('federated_handle', 255)->nullable();
                 $table->string('federated_inbox', 500)->nullable();
                 $table->timestamps();
-                $table->index('ap_username', 'fed_user_data_ap_username_index');
+                // Unique: a member's ap_username must be globally unique (WebFinger
+                // resolves by it). Remote mirrors leave it NULL, and NULLs are
+                // distinct in a unique index, so they don't collide.
+                $table->unique('ap_username', 'fed_user_data_ap_username_index');
                 $table->index('federated_actor', 'fed_user_data_federated_actor_index');
                 $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
             });

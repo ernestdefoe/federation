@@ -18,11 +18,14 @@ use Psr\Http\Message\ServerRequestInterface;
 class SignatureVerifier
 {
     /**
-     * Max allowed difference between the signed Date header and now. The Date is
-     * part of the signed string, so it cannot be altered without invalidating the
-     * signature; rejecting stale dates blocks replay of a captured request.
+     * Max allowed difference between the signed Date header and when the request
+     * was RECEIVED. The Date is part of the signed string, so it can't be altered
+     * without invalidating the signature; rejecting stale dates blocks replay.
+     * Compared against receipt time (captured before queueing), not job-run time,
+     * so queue latency never rejects valid traffic. 300s tolerates clock skew —
+     * the window most AP implementations use.
      */
-    private const MAX_CLOCK_SKEW_SECONDS = 30;
+    private const MAX_CLOCK_SKEW_SECONDS = 300;
 
     public function __construct(
         protected ActorFetcher $fetcher,
@@ -30,9 +33,10 @@ class SignatureVerifier
 
     /**
      * @param  array<string,string>  $headers  lower-cased header name => value
+     * @param  int  $receivedAt  unix time the request arrived (not when verified)
      * @return string|null the verified signing actor URI, or null when invalid
      */
-    public function verifyParts(string $method, string $requestTarget, array $headers, string $rawBody): ?string
+    public function verifyParts(string $method, string $requestTarget, array $headers, string $rawBody, int $receivedAt): ?string
     {
         $sigHeader = $headers['signature'] ?? '';
         if ($sigHeader === '') {
@@ -68,7 +72,7 @@ class SignatureVerifier
         }
 
         // Anti-replay: the Date is signed, so reject anything outside the window.
-        if (! $this->dateIsFresh($headers['date'] ?? '')) {
+        if (! $this->dateIsFresh($headers['date'] ?? '', $receivedAt)) {
             return null;
         }
 
@@ -86,6 +90,7 @@ class SignatureVerifier
             $request->getRequestTarget(),
             self::normaliseHeaders($request),
             $rawBody,
+            time(),
         );
     }
 
@@ -101,7 +106,7 @@ class SignatureVerifier
     }
 
     /** True when the signed Date header is present and within the skew window. */
-    private function dateIsFresh(string $date): bool
+    private function dateIsFresh(string $date, int $receivedAt): bool
     {
         if ($date === '') {
             return false;
@@ -111,7 +116,7 @@ class SignatureVerifier
             return false;
         }
 
-        return abs(time() - $ts) <= self::MAX_CLOCK_SKEW_SECONDS;
+        return abs($receivedAt - $ts) <= self::MAX_CLOCK_SKEW_SECONDS;
     }
 
     /** @return array<string,string> */

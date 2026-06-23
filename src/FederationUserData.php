@@ -28,7 +28,11 @@ class FederationUserData extends AbstractModel
 
     public $incrementing = false;
 
-    protected $guarded = [];
+    /** Explicit allow-list — data adjacent to untrusted remote payloads. */
+    protected $fillable = [
+        'user_id', 'ap_username', 'ap_public_key', 'ap_private_key',
+        'is_federated', 'federated_actor', 'federated_handle', 'federated_inbox',
+    ];
 
     protected $casts = ['is_federated' => 'bool'];
 

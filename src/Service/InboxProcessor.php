@@ -39,9 +39,9 @@ class InboxProcessor
     ) {}
 
     /** @param array<string,string> $headers lower-cased header name => value */
-    public function process(string $method, string $requestTarget, array $headers, string $rawBody, ?int $targetUserId): void
+    public function process(string $method, string $requestTarget, array $headers, string $rawBody, ?int $targetUserId, int $receivedAt): void
     {
-        $signedBy = $this->verifier->verifyParts($method, $requestTarget, $headers, $rawBody);
+        $signedBy = $this->verifier->verifyParts($method, $requestTarget, $headers, $rawBody, $receivedAt);
         if ($signedBy === null) {
             return; // bad/replayed signature — silently dropped (already 202'd)
         }
@@ -141,7 +141,12 @@ class InboxProcessor
             return;
         }
         $discussion = $this->documents->discussionFromUrl($obj['inReplyTo'] ?? null);
-        if (! $discussion) {
+        // Gate exactly like outbound federation: never inject a reply into a
+        // private or hidden discussion just because a remote guessed its id.
+        if (! $discussion
+            || ! $this->settings->enabled()
+            || $discussion->is_private
+            || $discussion->hidden_at !== null) {
             return;
         }
         $objectId = (string) ($obj['id'] ?? $activity['id'] ?? '');
