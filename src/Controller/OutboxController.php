@@ -8,9 +8,11 @@ use Flarum\Discussion\Discussion;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
-/** GET /federation/outbox — recent public discussions as Create activities. */
+/** GET /federation/outbox — recent public discussions as a paged collection. */
 class OutboxController extends AbstractFederationController
 {
+    private const PER_PAGE = 20;
+
     public function __construct(
         Settings $settings,
         protected DocumentBuilder $documents,
@@ -22,29 +24,54 @@ class OutboxController extends AbstractFederationController
     {
         $this->guard();
 
-        $items = $this->publicDiscussions()
+        $id = $this->settings->base().'/federation/outbox';
+        $page = (int) ($request->getQueryParams()['page'] ?? 0);
+        $total = $this->discussions()->count();
+
+        // No ?page → the OrderedCollection stub with a first link (a remote that
+        // paginates would otherwise choke on totalItems ≫ inline items).
+        if ($page < 1) {
+            return $this->ap([
+                '@context' => 'https://www.w3.org/ns/activitystreams',
+                'id' => $id,
+                'type' => 'OrderedCollection',
+                'totalItems' => $total,
+                'first' => $id.'?page=1',
+            ]);
+        }
+
+        $items = $this->discussions()
+            ->with(['firstPost', 'user'])
+            ->latest()
+            ->forPage($page, self::PER_PAGE)
+            ->get()
             ->map(fn (Discussion $d) => $this->documents->createActivityForDiscussion($d))
             ->all();
 
-        return $this->ap([
+        $doc = [
             '@context' => 'https://www.w3.org/ns/activitystreams',
-            'id' => $this->settings->base().'/federation/outbox',
-            'type' => 'OrderedCollection',
-            'totalItems' => $this->discussions()->count(),
+            'id' => $id.'?page='.$page,
+            'type' => 'OrderedCollectionPage',
+            'partOf' => $id,
+            'totalItems' => $total,
             'orderedItems' => $items,
-        ]);
+        ];
+        if ($page * self::PER_PAGE < $total) {
+            $doc['next'] = $id.'?page='.($page + 1);
+        }
+        if ($page > 1) {
+            $doc['prev'] = $id.'?page='.($page - 1);
+        }
+
+        return $this->ap($doc);
     }
 
+    /** Public, visible discussions authored by real (non-federated) members. */
     protected function discussions()
     {
         return Discussion::query()
             ->where('is_private', false)
             ->whereNull('hidden_at')
-            ->whereHas('user', fn ($q) => $q->where('is_federated', false));
-    }
-
-    protected function publicDiscussions()
-    {
-        return $this->discussions()->with(['firstPost', 'user'])->latest()->limit(20)->get();
+            ->whereHas('user', fn ($q) => $q->whereDoesntHave('federationData', fn ($q2) => $q2->where('is_federated', true)));
     }
 }

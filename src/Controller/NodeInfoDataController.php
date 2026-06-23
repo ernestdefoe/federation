@@ -23,7 +23,7 @@ class NodeInfoDataController extends AbstractFederationController
             'services' => ['inbound' => [], 'outbound' => []],
             'openRegistrations' => $this->settings->raw('allow_sign_up') !== '0',
             'usage' => [
-                'users' => ['total' => User::where('is_federated', false)->count()],
+                'users' => ['total' => User::whereDoesntHave('federationData', fn ($q) => $q->where('is_federated', true))->count()],
                 'localPosts' => Post::count(),
                 'localComments' => Discussion::count(),
             ],

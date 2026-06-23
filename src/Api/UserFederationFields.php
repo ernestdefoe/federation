@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Federation\Api;
 
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Api\Schema;
 use Flarum\User\User;
@@ -23,7 +24,7 @@ class UserFederationFields
         return [
             Schema\Str::make('federationHandle')
                 ->nullable()
-                ->get(fn (User $user) => ($this->settings->enabled() && ! $user->is_federated)
+                ->get(fn (User $user) => ($this->settings->enabled() && ! Fed::isFederated($user))
                     ? $this->settings->previewUserHandle($user)
                     : null),
         ];

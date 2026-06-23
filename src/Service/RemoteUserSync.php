@@ -2,13 +2,15 @@
 
 namespace ErnestDefoe\Federation\Service;
 
+use ErnestDefoe\Federation\Fed;
+use ErnestDefoe\Federation\FederationUserData;
 use Flarum\User\User;
 use Illuminate\Support\Str;
 
 /**
  * Mirrors a remote fediverse actor as a local "federated" user so its replies can
- * attach to a discussion. The mirror carries the origin actor URI, handle and
- * inbox, and is flagged is_federated so it never re-broadcasts.
+ * attach to a discussion. The mirror's federation data (origin actor URI, handle,
+ * inbox, is_federated flag) lives in the federation_user_data companion table.
  */
 class RemoteUserSync
 {
@@ -20,39 +22,44 @@ class RemoteUserSync
     public function upsert(string $actorUri): ?User
     {
         $actorUri = trim($actorUri);
-        if ($actorUri === '') {
+        if ($actorUri === '' || strlen($actorUri) > 500) {
             return null;
         }
-        $existing = User::where('federated_actor', $actorUri)->first();
+        $existing = FederationUserData::where('federated_actor', $actorUri)->first()?->user;
         $doc = $this->fetcher->fetchActor($actorUri);
         if (! $doc && ! $existing) {
             return null;
         }
 
         $user = $existing ?: new User;
-        if ($doc) {
-            $username = (string) ($doc['preferredUsername'] ?? 'user');
-            $host = (string) (parse_url((string) ($doc['id'] ?? $actorUri), PHP_URL_HOST) ?: 'remote');
-            $user->forceFill([
-                'federated_handle' => '@'.$username.'@'.$host,
-                'federated_inbox' => $doc['endpoints']['sharedInbox'] ?? ($doc['inbox'] ?? null),
-                'is_federated' => true,
-            ]);
-        }
 
+        // Core user row first (a new mirror needs an id before the companion FK).
         if (! $existing) {
             $username = (string) ($doc['preferredUsername'] ?? ('fedi'.substr(sha1($actorUri), 0, 8)));
             $user->forceFill([
                 'username' => $this->uniqueLocalUsername($username),
-                'federated_actor' => $actorUri,
                 'email' => 'fedi-'.sha1($actorUri).'@federated.invalid',
                 'password' => Str::random(40),
                 'is_email_confirmed' => true,
-                'is_federated' => true,
                 'joined_at' => \Carbon\Carbon::now(),
             ]);
+            $user->save();
         }
-        $user->save();
+
+        // Federation data → companion table.
+        $fed = Fed::ensure($user);
+        $fed->is_federated = true;
+        $fed->federated_actor = $actorUri;
+        if ($doc) {
+            $username = (string) ($doc['preferredUsername'] ?? 'user');
+            $host = (string) (parse_url((string) ($doc['id'] ?? $actorUri), PHP_URL_HOST) ?: 'remote');
+            $handle = '@'.$username.'@'.$host;
+            $inbox = $doc['endpoints']['sharedInbox'] ?? ($doc['inbox'] ?? null);
+            // Skip over-long remote values rather than throwing on the insert.
+            $fed->federated_handle = strlen($handle) <= 255 ? $handle : null;
+            $fed->federated_inbox = ($inbox && strlen((string) $inbox) <= 500) ? $inbox : null;
+        }
+        $fed->save();
 
         return $user;
     }

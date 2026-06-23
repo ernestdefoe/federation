@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Federation\Service;
 
+use ErnestDefoe\Federation\Fed;
 use Flarum\User\User;
 
 /**
@@ -72,21 +73,23 @@ class KeyManager
     /** @return array{public:string,private:string} a member's own keypair (lazy) */
     public function userKeys(User $user): array
     {
-        if ($user->ap_public_key && $user->ap_private_key) {
-            $priv = $this->decrypt((string) $user->ap_private_key);
-            if (! $this->isEncrypted((string) $user->ap_private_key)) {
+        $data = Fed::ensure($user);
+
+        if ($data->ap_public_key && $data->ap_private_key) {
+            $priv = $this->decrypt((string) $data->ap_private_key);
+            if (! $this->isEncrypted((string) $data->ap_private_key)) {
                 // Migrate a legacy plaintext member key to ciphertext at rest.
-                $user->forceFill(['ap_private_key' => $this->encrypt($priv)])->save();
+                $data->ap_private_key = $this->encrypt($priv);
+                $data->save();
             }
 
-            return ['public' => $user->ap_public_key, 'private' => $priv];
+            return ['public' => $data->ap_public_key, 'private' => $priv];
         }
 
         [$pub, $priv] = $this->generateKeypair();
-        $user->forceFill([
-            'ap_public_key' => $pub,
-            'ap_private_key' => $this->encrypt($priv),
-        ])->save();
+        $data->ap_public_key = $pub;
+        $data->ap_private_key = $this->encrypt($priv);
+        $data->save();
 
         return ['public' => $pub, 'private' => $priv];
     }

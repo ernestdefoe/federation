@@ -2,6 +2,8 @@
 
 namespace ErnestDefoe\Federation\Service;
 
+use ErnestDefoe\Federation\Fed;
+use ErnestDefoe\Federation\FederationUserData;
 use Flarum\Foundation\Config;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
@@ -91,16 +93,18 @@ class Settings
     /** A member's unique fediverse username (lazy: slug of name, deduped by id). */
     public function userUsername(User $user): string
     {
-        if ($user->ap_username) {
-            return $user->ap_username;
+        if ($ap = Fed::apUsername($user)) {
+            return $ap;
         }
         $base = Str::slug($this->displayName($user), '_') ?: 'member';
         $candidate = $base;
         if (strcasecmp($candidate, $this->username()) === 0
-            || User::where('ap_username', $candidate)->exists()) {
+            || FederationUserData::where('ap_username', $candidate)->exists()) {
             $candidate = $base.$user->id;
         }
-        $user->forceFill(['ap_username' => $candidate])->save();
+        $data = Fed::ensure($user);
+        $data->ap_username = $candidate;
+        $data->save();
 
         return $candidate;
     }
@@ -108,8 +112,8 @@ class Settings
     /** The member's username WITHOUT persisting (safe during serialization). */
     public function previewUserUsername(User $user): string
     {
-        if ($user->ap_username) {
-            return $user->ap_username;
+        if ($ap = Fed::apUsername($user)) {
+            return $ap;
         }
 
         return Str::slug($this->displayName($user), '_') ?: 'member';
@@ -137,7 +141,8 @@ class Settings
         if ($username === strtolower($this->username())) {
             return ['type' => 'community'];
         }
-        $user = User::where('ap_username', $username)->where('is_federated', false)->first();
+        $data = FederationUserData::where('ap_username', $username)->where('is_federated', false)->first();
+        $user = $data?->user;
 
         return $user ? ['type' => 'user', 'user' => $user] : null;
     }

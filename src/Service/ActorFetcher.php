@@ -10,9 +10,10 @@ use Psr\Log\LoggerInterface;
 
 /**
  * Outbound HTTP: fetches (and caches) remote actor documents and delivers signed
- * activities to remote inboxes. Every destination is screened by {@see UrlGuard}
- * before a request is made, so a hostile keyId/actor/inbox cannot point us at an
- * internal address (SSRF).
+ * activities to remote inboxes. Every destination is screened by {@see UrlGuard},
+ * and the connection is pinned to the validated IP (via curl's resolve override)
+ * so a zero-TTL DNS record can't be flipped to an internal address between the
+ * check and the connect (SSRF / DNS rebinding).
  */
 class ActorFetcher
 {
@@ -29,7 +30,8 @@ class ActorFetcher
     {
         $url = strtok($url, '#') ?: $url; // strip #main-key fragment
 
-        if (! $this->guard->isAllowed($url)) {
+        $pin = $this->guard->pinnedIp($url);
+        if ($pin === null) {
             $this->log->debug('[federation] refused to fetch unsafe actor URL: '.$url);
 
             return null;
@@ -45,7 +47,11 @@ class ActorFetcher
         try {
             $headers = $this->signer->signHeaders(null, 'get', $url);
             $headers['Accept'] = Federation::CTYPE;
-            $res = $this->http->get($url, ['timeout' => 8, 'headers' => $headers, 'http_errors' => false]);
+            $res = $this->http->get($url, [
+                'timeout' => 8,
+                'headers' => $headers,
+                'http_errors' => false,
+            ] + $this->pinOption($url, $pin));
             if ($res->getStatusCode() >= 200 && $res->getStatusCode() < 300) {
                 $decoded = json_decode((string) $res->getBody(), true);
                 $data = is_array($decoded) ? $decoded : null;
@@ -66,7 +72,8 @@ class ActorFetcher
     /** POST a signed activity to a single inbox. Returns the HTTP status, or 0. */
     public function deliver(?User $signer, string $inbox, array $activity): int
     {
-        if (! $this->guard->isAllowed($inbox)) {
+        $pin = $this->guard->pinnedIp($inbox);
+        if ($pin === null) {
             $this->log->debug('[federation] refused to deliver to unsafe inbox: '.$inbox);
 
             return 0;
@@ -80,7 +87,7 @@ class ActorFetcher
                 'headers' => $headers,
                 'body' => $body,
                 'http_errors' => false,
-            ]);
+            ] + $this->pinOption($inbox, $pin));
 
             return $res->getStatusCode();
         } catch (\Throwable $e) {
@@ -88,5 +95,22 @@ class ActorFetcher
 
             return 0;
         }
+    }
+
+    /**
+     * curl request option pinning $url's host to the pre-validated IP. Empty when
+     * pinning is disabled (dev override) or curl isn't available — the UrlGuard
+     * check still ran, so only the (rare) curl-less rebinding edge is uncovered.
+     */
+    private function pinOption(string $url, string $pin): array
+    {
+        if ($pin === '' || ! defined('CURLOPT_RESOLVE')) {
+            return [];
+        }
+        $parts = parse_url($url);
+        $host = trim((string) ($parts['host'] ?? ''), '[]');
+        $port = $parts['port'] ?? 443;
+
+        return ['curl' => [CURLOPT_RESOLVE => ["$host:$port:$pin"]]];
     }
 }

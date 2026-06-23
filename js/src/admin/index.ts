@@ -1,7 +1,10 @@
 import Extend from 'flarum/common/extenders';
 import app from 'flarum/admin/app';
 
-declare const m: any;
+// Flarum provides `m` as a runtime global (not a bundled module — importing it
+// would break the build here, which doesn't externalise mithril). Type it from
+// @types/mithril so vnode construction is checked, instead of `any`.
+declare const m: import('mithril').Static;
 
 const KEY = 'ernestdefoe-federation';
 const t = (k: string) => app.translator.trans(`${KEY}.admin.settings.${k}`);

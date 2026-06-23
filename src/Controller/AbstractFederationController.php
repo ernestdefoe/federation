@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Http\Exception\RouteNotFoundException;
@@ -52,7 +53,7 @@ abstract class AbstractFederationController implements RequestHandlerInterface
     {
         $id = $this->routeId($request);
         $user = $id > 0 ? User::find($id) : null;
-        if (! $user || $user->is_federated) {
+        if (! $user || Fed::isFederated($user)) {
             throw new RouteNotFoundException;
         }
 

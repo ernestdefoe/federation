@@ -8,6 +8,7 @@ use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
 use Flarum\Post\Post;
 use Flarum\User\User;
+use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -36,6 +37,7 @@ class Federation
         protected Settings $settings,
         protected DocumentBuilder $documents,
         protected LoggerInterface $log,
+        protected Bus $bus,
     ) {}
 
     /** Only public, visible, member-authored discussions federate. */
@@ -45,7 +47,7 @@ class Federation
             && ! $discussion->is_private
             && $discussion->hidden_at === null
             && $discussion->user
-            && ! $discussion->user->is_federated;
+            && ! Fed::isFederated($discussion->user);
     }
 
     /** Announce a brand-new discussion: community boost + author's own followers. */
@@ -63,9 +65,9 @@ class Federation
                 FederationFollower::whereNull('user_id')->get()
             );
             if ($communityInboxes) {
-                Job\DeliverActivity::send(
+                $this->bus->dispatch(new Job\DeliverActivity(
                     $this->documents->announceActivityForDiscussion($discussion), $communityInboxes, null
-                );
+                ));
             }
 
             // The author's own followers → the per-member Create, signed by them.
@@ -74,9 +76,9 @@ class Federation
                     FederationFollower::where('user_id', $author->id)->get()
                 );
                 if ($authorInboxes) {
-                    Job\DeliverActivity::send(
+                    $this->bus->dispatch(new Job\DeliverActivity(
                         $this->documents->createActivityForDiscussion($discussion), $authorInboxes, $author->id
-                    );
+                    ));
                 }
             }
         } catch (\Throwable $e) {
@@ -92,7 +94,7 @@ class Federation
                 return;
             }
             // Never re-broadcast a reply that arrived FROM the fediverse.
-            if ($post->user && $post->user->is_federated) {
+            if (Fed::isFederated($post->user)) {
                 return;
             }
             $author = $this->documents->authorOf($post->user);
@@ -103,7 +105,7 @@ class Federation
             $link = $this->documents->discussionUrl($discussion).'/'.$post->number;
 
             // Remote participants already in this thread.
-            $remoteInboxes = User::whereIn('id', $discussion->posts()->pluck('user_id'))
+            $remoteInboxes = FederationUserData::whereIn('user_id', $discussion->posts()->pluck('user_id'))
                 ->where('is_federated', true)->pluck('federated_inbox')->filter()->all();
             // The author's followers (replies aren't boosted to community followers
             // to avoid flooding — following the community gives you new topics).
@@ -145,7 +147,7 @@ class Federation
                     'cc' => [$followers],
                 ],
             ];
-            Job\DeliverActivity::send($activity, $inboxes, $author?->id);
+            $this->bus->dispatch(new Job\DeliverActivity($activity, $inboxes, $author?->id));
         } catch (\Throwable $e) {
             $this->log->debug('[federation] announceReply skipped: '.$e->getMessage());
         }

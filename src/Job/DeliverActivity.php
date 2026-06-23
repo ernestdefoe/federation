@@ -5,7 +5,6 @@ namespace ErnestDefoe\Federation\Job;
 use ErnestDefoe\Federation\Service\ActorFetcher;
 use Flarum\User\User;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -37,15 +36,6 @@ class DeliverActivity implements ShouldQueue
         public array $inboxes,
         public ?int $signerId = null,
     ) {}
-
-    /** Queue delivery (runs inline on the default `sync` driver). */
-    public static function send(array $activity, array $inboxes, ?int $signerId = null): void
-    {
-        if (! $inboxes) {
-            return;
-        }
-        resolve(Dispatcher::class)->dispatch(new self($activity, $inboxes, $signerId));
-    }
 
     public function handle(ActorFetcher $fetcher): void
     {

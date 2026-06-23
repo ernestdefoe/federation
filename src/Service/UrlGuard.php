@@ -8,42 +8,58 @@ namespace ErnestDefoe\Federation\Service;
  * The keyId/actor/inbox URLs we dereference all come from untrusted remote input
  * (a signed inbox POST can name any URL). Without validation an attacker can make
  * the server GET/POST internal addresses — cloud metadata (169.254.169.254),
- * loopback, RFC-1918 ranges, etc. This rejects anything that is not https:// and
- * anything that resolves to a non-publicly-routable address.
+ * loopback, RFC-1918 ranges, etc.
  *
- * Set FEDERATION_ALLOW_PRIVATE=1 to disable the private-range check for local
- * development against a federation peer on a private network.
+ * {@see pinnedIp} resolves and validates the host, then returns the exact IP the
+ * caller must connect to — so the HTTP client pins that checked address instead
+ * of re-resolving DNS on connect (which a zero-TTL record could flip to an
+ * internal IP between our check and the connection: DNS rebinding).
+ *
+ * Set FEDERATION_ALLOW_PRIVATE=1 to disable the checks for local development
+ * against a peer on a private network.
  */
 class UrlGuard
 {
-    /** True when the URL is safe to dereference from the server. */
-    public function isAllowed(string $url): bool
+    /**
+     * @return string|null  a validated public IP to pin the connection to;
+     *                      '' = allowed without pinning (dev override);
+     *                      null = the URL must not be dereferenced
+     */
+    public function pinnedIp(string $url): ?string
     {
         $parts = parse_url($url);
         if ($parts === false || ($parts['scheme'] ?? '') !== 'https') {
-            return false;
+            return null;
         }
         $host = $parts['host'] ?? '';
         if ($host === '') {
-            return false;
+            return null;
         }
 
         if (getenv('FEDERATION_ALLOW_PRIVATE') === '1') {
-            return true;
+            return ''; // dev: allowed, let the client resolve normally
         }
 
         $host = trim($host, '[]'); // strip IPv6 brackets
         $ips = $this->resolve($host);
         if ($ips === []) {
-            return false; // cannot verify the destination → treat as unsafe
+            return null; // cannot verify the destination → treat as unsafe
         }
         foreach ($ips as $ip) {
             if (! $this->isPublic($ip)) {
-                return false;
+                return null;
             }
         }
 
-        return true;
+        // Every resolved address is public; pin the first so the actual
+        // connection can't be re-pointed at an internal host.
+        return $ips[0];
+    }
+
+    /** True when the URL is safe to dereference from the server. */
+    public function isAllowed(string $url): bool
+    {
+        return $this->pinnedIp($url) !== null;
     }
 
     /** @return string[] resolved IP literals for $host (the literal itself if it is one) */

@@ -7,18 +7,20 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * Verifies an inbound HTTP Signature against its actor's published public key.
  *
+ * The core works on raw request parts ({@see verifyParts}) so it can run inside a
+ * queued job (the request object itself isn't serializable); {@see verify} is a
+ * thin adapter for a live PSR-7 request.
+ *
  * On success it returns the verified keyId WITHOUT the #fragment — i.e. the actor
  * URI that actually signed the request. Callers must compare that against any
- * actor claimed in the request body before acting on it, otherwise a server
- * holding key A could sign activities claiming to originate from actor B.
+ * actor claimed in the request body before acting on it.
  */
 class SignatureVerifier
 {
     /**
      * Max allowed difference between the signed Date header and now. The Date is
-     * part of the signed string, so an attacker cannot adjust it without
-     * invalidating the signature; rejecting stale dates blocks replay of a
-     * captured request. Matches Mastodon's freshness window.
+     * part of the signed string, so it cannot be altered without invalidating the
+     * signature; rejecting stale dates blocks replay of a captured request.
      */
     private const MAX_CLOCK_SKEW_SECONDS = 30;
 
@@ -27,12 +29,12 @@ class SignatureVerifier
     ) {}
 
     /**
-     * @return string|null the verified signing actor URI (keyId minus #fragment),
-     *                     or null when the signature is missing/invalid
+     * @param  array<string,string>  $headers  lower-cased header name => value
+     * @return string|null the verified signing actor URI, or null when invalid
      */
-    public function verify(ServerRequestInterface $request, string $rawBody): ?string
+    public function verifyParts(string $method, string $requestTarget, array $headers, string $rawBody): ?string
     {
-        $sigHeader = $request->getHeaderLine('Signature');
+        $sigHeader = $headers['signature'] ?? '';
         if ($sigHeader === '') {
             return null;
         }
@@ -49,37 +51,53 @@ class SignatureVerifier
 
         $lines = [];
         foreach (explode(' ', $params['headers']) as $h) {
-            if ($h === '(request-target)') {
-                $lines[] = '(request-target): '.strtolower($request->getMethod()).' '.$request->getRequestTarget();
-            } elseif ($h === 'digest') {
-                $lines[] = 'digest: '.$request->getHeaderLine('Digest');
-            } else {
-                $lines[] = $h.': '.$request->getHeaderLine($h);
-            }
+            $lines[] = $h === '(request-target)'
+                ? '(request-target): '.strtolower($method).' '.$requestTarget
+                : $h.': '.($headers[strtolower($h)] ?? '');
         }
 
         if (str_contains($params['headers'], 'digest')) {
             $expected = 'SHA-256='.base64_encode(hash('sha256', $rawBody, true));
-            if (! hash_equals($expected, $request->getHeaderLine('Digest'))) {
+            if (! hash_equals($expected, $headers['digest'] ?? '')) {
                 return null;
             }
         }
 
-        $ok = openssl_verify(implode("\n", $lines), base64_decode($params['signature']), $pem, OPENSSL_ALGO_SHA256) === 1;
-        if (! $ok) {
+        if (openssl_verify(implode("\n", $lines), base64_decode($params['signature']), $pem, OPENSSL_ALGO_SHA256) !== 1) {
             return null;
         }
 
         // Anti-replay: the Date is signed, so reject anything outside the window.
-        if (! $this->dateIsFresh($request->getHeaderLine('Date'))) {
+        if (! $this->dateIsFresh($headers['date'] ?? '')) {
             return null;
         }
 
-        // Return the signing actor URI (the key owner if published, else keyId),
-        // normalised (fragment stripped) so callers can do strict equality.
+        // The signing actor URI (key owner if published, else keyId), normalised.
         $owner = (string) ($actor['publicKey']['owner'] ?? $actor['id'] ?? $params['keyId']);
 
         return trim(strtok($owner, '#') ?: $owner);
+    }
+
+    /** Adapter for a live request: normalise headers, then verify the parts. */
+    public function verify(ServerRequestInterface $request, string $rawBody): ?string
+    {
+        return $this->verifyParts(
+            strtolower($request->getMethod()),
+            $request->getRequestTarget(),
+            self::normaliseHeaders($request),
+            $rawBody,
+        );
+    }
+
+    /** @return array<string,string> lower-cased header name => comma-joined value */
+    public static function normaliseHeaders(ServerRequestInterface $request): array
+    {
+        $headers = [];
+        foreach ($request->getHeaders() as $name => $values) {
+            $headers[strtolower($name)] = implode(', ', $values);
+        }
+
+        return $headers;
     }
 
     /** True when the signed Date header is present and within the skew window. */

@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Federation\Service;
 
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Federation;
 use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
@@ -23,7 +24,7 @@ class DocumentBuilder
     /** The author who federates a discussion/post, or null = the community. */
     public function authorOf(?User $user): ?User
     {
-        return ($user && ! $user->is_federated) ? $user : null;
+        return ($user && ! Fed::isFederated($user)) ? $user : null;
     }
 
     // ---- Actors ------------------------------------------------------------

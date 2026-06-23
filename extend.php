@@ -9,11 +9,15 @@
 use ErnestDefoe\Federation\Api\ForumFederationFields;
 use ErnestDefoe\Federation\Api\UserFederationFields;
 use ErnestDefoe\Federation\Controller;
+use ErnestDefoe\Federation\FederationUserData;
 use ErnestDefoe\Federation\Listener\AnnouncePost;
+use ErnestDefoe\Federation\PostFederationMeta;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
 use Flarum\Extend;
 use Flarum\Post\Event\Posted;
+use Flarum\Post\Post;
+use Flarum\User\User;
 
 return [
     (new Extend\Frontend('admin'))
@@ -60,4 +64,11 @@ return [
 
     (new Extend\ApiResource(UserResource::class))
         ->fields(UserFederationFields::class),
+
+    // Federation data lives in companion tables, related to the core models so
+    // it never bloats the users/posts rows. Accessed via Fed::* / the relations.
+    (new Extend\Model(User::class))
+        ->hasOne('federationData', FederationUserData::class, 'user_id'),
+    (new Extend\Model(Post::class))
+        ->hasOne('federationMeta', PostFederationMeta::class, 'post_id'),
 ];
