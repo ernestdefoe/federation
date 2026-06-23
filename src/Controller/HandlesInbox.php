@@ -5,6 +5,11 @@ namespace ErnestDefoe\Federation\Controller;
 use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\FederationFollower;
 use ErnestDefoe\Federation\Job\DeliverActivity;
+use ErnestDefoe\Federation\Service\ActorFetcher;
+use ErnestDefoe\Federation\Service\DocumentBuilder;
+use ErnestDefoe\Federation\Service\RemoteUserSync;
+use ErnestDefoe\Federation\Service\Settings;
+use ErnestDefoe\Federation\Service\SignatureVerifier;
 use Flarum\Post\CommentPost;
 use Flarum\Post\Post;
 use Flarum\User\User;
@@ -14,17 +19,46 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Inbox processing shared by the community and per-member inboxes. Verifies the
- * HTTP Signature, then dispatches by activity type. $target is the followed
- * member, or null for the community.
+ * Inbox processing shared by the community and per-member inboxes. It verifies
+ * the HTTP Signature, learns WHICH actor actually signed the request, and only
+ * then dispatches by activity type. $target is the followed member, or null for
+ * the community.
+ *
+ * Crucially, every handler is given the *verified* signing actor and checks it
+ * against the actor claimed in the request body (and, for Delete, against the
+ * post's original author) — a valid signature from server A must not be able to
+ * act as actor B.
  */
 trait HandlesInbox
 {
+    protected SignatureVerifier $verifier;
+
+    protected ActorFetcher $fetcher;
+
+    protected RemoteUserSync $remoteUsers;
+
+    protected DocumentBuilder $documents;
+
+    public function __construct(
+        Settings $settings,
+        SignatureVerifier $verifier,
+        ActorFetcher $fetcher,
+        RemoteUserSync $remoteUsers,
+        DocumentBuilder $documents,
+    ) {
+        parent::__construct($settings);
+        $this->verifier = $verifier;
+        $this->fetcher = $fetcher;
+        $this->remoteUsers = $remoteUsers;
+        $this->documents = $documents;
+    }
+
     protected function processInbox(ServerRequestInterface $request, ?User $target): ResponseInterface
     {
         $raw = (string) $request->getBody();
 
-        if (! Federation::verifyRequest($request, $raw)) {
+        $signedBy = $this->verifier->verify($request, $raw);
+        if ($signedBy === null) {
             return new EmptyResponse(401);
         }
 
@@ -34,23 +68,44 @@ trait HandlesInbox
         }
 
         match ($activity['type'] ?? null) {
-            'Follow' => $this->handleFollow($activity, $target),
-            'Undo' => $this->handleUndo($activity, $target),
-            'Create' => $this->handleCreate($activity),
-            'Delete' => $this->handleDelete($activity),
+            'Follow' => $this->handleFollow($activity, $target, $signedBy),
+            'Undo' => $this->handleUndo($activity, $target, $signedBy),
+            'Create' => $this->handleCreate($activity, $signedBy),
+            'Delete' => $this->handleDelete($activity, $signedBy),
             default => null, // accepted but ignored (Like, Announce, …)
         };
 
         return new EmptyResponse(202);
     }
 
-    private function handleFollow(array $activity, ?User $target): void
+    /**
+     * True when the actor claimed in the body is the same actor that signed the
+     * request (exact match, or — tolerating minor implementation differences —
+     * the same host). Anything else is a spoofing attempt.
+     */
+    protected function actorAuthorized(string $signedBy, string $claimed): bool
+    {
+        if ($claimed === '') {
+            return false;
+        }
+        $a = strtok($signedBy, '#') ?: $signedBy;
+        $b = strtok($claimed, '#') ?: $claimed;
+        if (strcasecmp($a, $b) === 0) {
+            return true;
+        }
+        $ah = parse_url($a, PHP_URL_HOST);
+        $bh = parse_url($b, PHP_URL_HOST);
+
+        return $ah && $bh && strcasecmp($ah, $bh) === 0;
+    }
+
+    private function handleFollow(array $activity, ?User $target, string $signedBy): void
     {
         $actorUri = (string) ($activity['actor'] ?? '');
-        if ($actorUri === '') {
-            return;
+        if (! $this->actorAuthorized($signedBy, $actorUri)) {
+            return; // the signer is not the actor it claims to be
         }
-        $remote = Federation::fetchActor($actorUri);
+        $remote = $this->fetcher->fetchActor($actorUri);
         if (! $remote || empty($remote['inbox'])) {
             return;
         }
@@ -64,7 +119,7 @@ trait HandlesInbox
         );
 
         // Acknowledge the follow, signed by whichever actor was followed.
-        $localActor = $target ? Federation::userActorUrl($target) : Federation::actorUrl();
+        $localActor = $target ? $this->settings->userActorUrl($target) : $this->settings->actorUrl();
         $accept = [
             '@context' => 'https://www.w3.org/ns/activitystreams',
             'id' => $localActor.'#accept/'.bin2hex(random_bytes(8)),
@@ -75,24 +130,29 @@ trait HandlesInbox
         DeliverActivity::send($accept, [$remote['inbox']], $target?->id);
     }
 
-    private function handleUndo(array $activity, ?User $target): void
+    private function handleUndo(array $activity, ?User $target, string $signedBy): void
     {
         if (($activity['object']['type'] ?? null) === 'Follow') {
             $actor = (string) ($activity['actor'] ?? '');
-            if ($actor !== '') {
-                FederationFollower::where('user_id', $target?->id)->where('actor', $actor)->delete();
+            if (! $this->actorAuthorized($signedBy, $actor)) {
+                return;
             }
+            FederationFollower::where('user_id', $target?->id)->where('actor', $actor)->delete();
         }
     }
 
     /** A remote reply to one of our discussions → a federated post in it. */
-    private function handleCreate(array $activity): void
+    private function handleCreate(array $activity, string $signedBy): void
     {
+        $claimed = (string) ($activity['actor'] ?? '');
+        if (! $this->actorAuthorized($signedBy, $claimed)) {
+            return; // attributed to an actor that did not sign the request
+        }
         $obj = $activity['object'] ?? null;
         if (! is_array($obj)) {
             return;
         }
-        $discussion = Federation::discussionFromUrl($obj['inReplyTo'] ?? null);
+        $discussion = $this->documents->discussionFromUrl($obj['inReplyTo'] ?? null);
         if (! $discussion) {
             return; // not a reply to our content
         }
@@ -100,7 +160,7 @@ trait HandlesInbox
         if ($objectId === '' || Post::where('federated_object', $objectId)->exists()) {
             return; // missing id or already imported
         }
-        $author = Federation::upsertRemoteUser((string) ($activity['actor'] ?? ''));
+        $author = $this->remoteUsers->upsert($claimed);
         if (! $author) {
             return;
         }
@@ -123,13 +183,36 @@ trait HandlesInbox
         $discussion->save();
     }
 
-    /** A remote Delete → remove the federated post it refers to. */
-    private function handleDelete(array $activity): void
+    /**
+     * A remote Delete → remove the federated post it refers to, but ONLY when the
+     * signature proves the request comes from that post's original author. Without
+     * this check any server with one local follower could delete arbitrary posts.
+     */
+    private function handleDelete(array $activity, string $signedBy): void
     {
         $obj = $activity['object'] ?? null;
         $id = is_string($obj) ? $obj : (string) ($obj['id'] ?? '');
-        if ($id !== '') {
-            Post::where('federated_object', $id)->delete();
+        if ($id === '') {
+            return;
+        }
+
+        $post = Post::where('federated_object', $id)->first();
+        if (! $post) {
+            return;
+        }
+        $author = $post->user;
+        if (! $author || ! $author->is_federated
+            || ! $this->actorAuthorized($signedBy, (string) $author->federated_actor)) {
+            return; // only the original author may delete their federated post
+        }
+
+        $discussion = $post->discussion;
+        $post->delete();
+
+        if ($discussion) {
+            $discussion->refreshCommentCount();
+            $discussion->refreshLastPost();
+            $discussion->save();
         }
     }
 }

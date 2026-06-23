@@ -1,5 +1,6 @@
 <?php
 
+use Flarum\Database\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 
@@ -8,54 +9,33 @@ use Illuminate\Database\Schema\Builder;
  * (ap_username + keypair). Remote fediverse users are mirrored as local
  * "federated" accounts (is_federated = true) so their replies can attach to a
  * discussion; those carry their origin actor URI, handle and inbox.
+ *
+ * Private keys (ap_private_key) are stored encrypted at rest by the KeyManager
+ * service — the column itself just holds the ciphertext.
  */
+$columns = Migration::addColumns('users', [
+    'ap_username' => ['string', 'length' => 80, 'nullable' => true],
+    'ap_public_key' => ['text', 'nullable' => true],
+    'ap_private_key' => ['text', 'nullable' => true],
+    'is_federated' => ['boolean', 'default' => false],
+    'federated_actor' => ['string', 'length' => 500, 'nullable' => true],
+    'federated_handle' => ['string', 'length' => 255, 'nullable' => true],
+    'federated_inbox' => ['string', 'length' => 500, 'nullable' => true],
+]);
+
 return [
-    'up' => function (Builder $schema) {
-        $columns = [
-            'ap_username' => fn (Blueprint $t) => $t->string('ap_username', 80)->nullable(),
-            'ap_public_key' => fn (Blueprint $t) => $t->text('ap_public_key')->nullable(),
-            'ap_private_key' => fn (Blueprint $t) => $t->text('ap_private_key')->nullable(),
-            'is_federated' => fn (Blueprint $t) => $t->boolean('is_federated')->default(false),
-            'federated_actor' => fn (Blueprint $t) => $t->string('federated_actor', 500)->nullable(),
-            'federated_handle' => fn (Blueprint $t) => $t->string('federated_handle', 255)->nullable(),
-            'federated_inbox' => fn (Blueprint $t) => $t->string('federated_inbox', 500)->nullable(),
-        ];
-
-        foreach ($columns as $name => $add) {
-            if (! $schema->hasColumn('users', $name)) {
-                $schema->table('users', function (Blueprint $table) use ($add) {
-                    $add($table);
-                });
-            }
-        }
-
-        // Indexes (guarded so a re-run won't fail).
-        try {
-            $schema->table('users', function (Blueprint $table) {
-                $table->index('ap_username', 'users_ap_username_index');
-            });
-        } catch (\Throwable $e) {
-            // already exists
-        }
-        try {
-            $schema->table('users', function (Blueprint $table) {
-                $table->index('federated_actor', 'users_federated_actor_index');
-            });
-        } catch (\Throwable $e) {
-            // already exists
-        }
+    'up' => function (Builder $schema) use ($columns) {
+        $columns['up']($schema);
+        $schema->table('users', function (Blueprint $table) {
+            $table->index('ap_username', 'users_ap_username_index');
+            $table->index('federated_actor', 'users_federated_actor_index');
+        });
     },
-
-    'down' => function (Builder $schema) {
-        foreach ([
-            'ap_username', 'ap_public_key', 'ap_private_key', 'is_federated',
-            'federated_actor', 'federated_handle', 'federated_inbox',
-        ] as $name) {
-            if ($schema->hasColumn('users', $name)) {
-                $schema->table('users', function (Blueprint $table) use ($name) {
-                    $table->dropColumn($name);
-                });
-            }
-        }
+    'down' => function (Builder $schema) use ($columns) {
+        $schema->table('users', function (Blueprint $table) {
+            $table->dropIndex('users_ap_username_index');
+            $table->dropIndex('users_federated_actor_index');
+        });
+        $columns['down']($schema);
     },
 ];

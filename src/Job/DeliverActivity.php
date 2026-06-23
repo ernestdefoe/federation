@@ -2,7 +2,7 @@
 
 namespace ErnestDefoe\Federation\Job;
 
-use ErnestDefoe\Federation\Federation;
+use ErnestDefoe\Federation\Service\ActorFetcher;
 use Flarum\User\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Bus\Dispatcher;
@@ -47,7 +47,7 @@ class DeliverActivity implements ShouldQueue
         resolve(Dispatcher::class)->dispatch(new self($activity, $inboxes, $signerId));
     }
 
-    public function handle(): void
+    public function handle(ActorFetcher $fetcher): void
     {
         $inboxes = array_values(array_unique(array_filter($this->inboxes)));
         if (! $inboxes) {
@@ -57,7 +57,7 @@ class DeliverActivity implements ShouldQueue
         $signer = $this->signerId ? User::find($this->signerId) : null;
 
         foreach ($inboxes as $inbox) {
-            Federation::deliver($signer, $inbox, $this->activity);
+            $fetcher->deliver($signer, $inbox, $this->activity);
         }
     }
 }

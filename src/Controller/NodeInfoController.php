@@ -2,7 +2,6 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
-use ErnestDefoe\Federation\Federation;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -16,7 +15,7 @@ class NodeInfoController extends AbstractFederationController
         return $this->ap([
             'links' => [[
                 'rel' => 'http://nodeinfo.diaspora.software/ns/schema/2.0',
-                'href' => Federation::base().'/nodeinfo/2.0',
+                'href' => $this->settings->base().'/nodeinfo/2.0',
             ]],
         ], 'application/json');
     }

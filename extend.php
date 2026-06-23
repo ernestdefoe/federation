@@ -9,6 +9,7 @@
 use ErnestDefoe\Federation\Controller;
 use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\Listener\AnnouncePost;
+use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Resource\UserResource;
 use Flarum\Api\Schema;
@@ -55,19 +56,27 @@ return [
     (new Extend\ApiResource(ForumResource::class))
         ->fields(fn () => [
             Schema\Boolean::make('federationEnabled')
-                ->get(fn () => Federation::enabled()),
+                ->get(fn () => resolve(Settings::class)->enabled()),
             Schema\Str::make('federationHandle')
                 ->nullable()
-                ->get(fn () => Federation::enabled() ? Federation::handle() : null),
+                ->get(function () {
+                    $settings = resolve(Settings::class);
+
+                    return $settings->enabled() ? $settings->handle() : null;
+                }),
         ]),
 
     (new Extend\ApiResource(UserResource::class))
         ->fields(fn () => [
             Schema\Str::make('federationHandle')
                 ->nullable()
-                ->get(fn (User $user) => (Federation::enabled() && ! $user->is_federated)
-                    ? Federation::previewUserHandle($user)
-                    : null),
+                ->get(function (User $user) {
+                    $settings = resolve(Settings::class);
+
+                    return ($settings->enabled() && ! $user->is_federated)
+                        ? $settings->previewUserHandle($user)
+                        : null;
+                }),
         ]),
 
     // ---- Settings consumed by the admin UI ----------------------------------

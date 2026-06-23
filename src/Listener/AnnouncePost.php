@@ -18,6 +18,10 @@ use Flarum\Post\Event\Posted;
  */
 class AnnouncePost
 {
+    public function __construct(
+        protected Federation $federation,
+    ) {}
+
     public function handle(Posted $event): void
     {
         $post = $event->post;
@@ -32,9 +36,9 @@ class AnnouncePost
         if ((int) $post->number <= 1) {
             // Ensure the relation the Note builder reads is loaded.
             $discussion->setRelation('firstPost', $post);
-            Federation::announceDiscussion($discussion);
+            $this->federation->announceDiscussion($discussion);
         } else {
-            Federation::announceReply($post, $discussion);
+            $this->federation->announceReply($post, $discussion);
         }
     }
 }

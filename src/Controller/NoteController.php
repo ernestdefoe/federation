@@ -3,23 +3,32 @@
 namespace ErnestDefoe\Federation\Controller;
 
 use ErnestDefoe\Federation\Federation;
+use ErnestDefoe\Federation\Service\DocumentBuilder;
+use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\Http\Exception\RouteNotFoundException;
-use Illuminate\Support\Arr;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /** GET /federation/notes/{id} — the AP Note object for a discussion. */
 class NoteController extends AbstractFederationController
 {
+    public function __construct(
+        Settings $settings,
+        protected Federation $federation,
+        protected DocumentBuilder $documents,
+    ) {
+        parent::__construct($settings);
+    }
+
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
         $this->guard();
 
-        $id = (int) Arr::get($request->getQueryParams(), 'id');
+        $id = $this->routeId($request);
         $discussion = $id > 0 ? Discussion::find($id) : null;
 
-        if (! $discussion || ! Federation::shouldFederate($discussion)) {
+        if (! $discussion || ! $this->federation->shouldFederate($discussion)) {
             throw new RouteNotFoundException;
         }
 
@@ -27,7 +36,7 @@ class NoteController extends AbstractFederationController
 
         return $this->ap(
             ['@context' => 'https://www.w3.org/ns/activitystreams']
-            + Federation::noteForDiscussion($discussion)
+            + $this->documents->noteForDiscussion($discussion)
         );
     }
 }
