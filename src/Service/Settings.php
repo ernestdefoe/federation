@@ -7,6 +7,7 @@ use ErnestDefoe\Federation\FederationUserData;
 use Flarum\Foundation\Config;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
@@ -24,6 +25,8 @@ class Settings
     public function __construct(
         protected SettingsRepositoryInterface $settings,
         protected Config $config,
+        protected ConnectionResolverInterface $db,
+        protected Fed $fed,
     ) {}
 
     public function get(string $key, $default = null)
@@ -94,15 +97,13 @@ class Settings
     /** A member's unique fediverse username (lazy: slug of name, deduped by id). */
     public function userUsername(User $user): string
     {
-        if ($ap = Fed::apUsername($user)) {
+        if ($ap = $this->fed->apUsername($user)) {
             return $ap;
         }
 
-        $conn = FederationUserData::query()->getConnection();
-
-        return $conn->transaction(function () use ($user, $conn) {
+        return $this->db->connection()->transaction(function () use ($user) {
             // Lock the row so concurrent fetches for THIS user serialise.
-            $conn->table('federation_user_data')->insertOrIgnore(['user_id' => $user->id]);
+            FederationUserData::query()->insertOrIgnore(['user_id' => $user->id]);
             $data = FederationUserData::whereKey($user->id)->lockForUpdate()->first();
             $user->setRelation('federationData', $data);
             if ($data->ap_username) {
@@ -136,7 +137,7 @@ class Settings
     /** The member's username WITHOUT persisting (safe during serialization). */
     public function previewUserUsername(User $user): string
     {
-        if ($ap = Fed::apUsername($user)) {
+        if ($ap = $this->fed->apUsername($user)) {
             return $ap;
         }
 

@@ -1,16 +1,17 @@
 <?php
 
+use Flarum\Database\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 
 /*
  * Move per-member federation data off the core users table into a companion
- * table (federation_user_data). The bulky key columns and the two federation
- * indexes no longer bloat every user row / mutation on large forums.
+ * table (federation_user_data) — the bulky key columns and federation indexes no
+ * longer bloat every user row / mutation. Existing data added by the original
+ * 2026_06_23_000002 is copied across, then the old columns + indexes are dropped.
  *
- * Existing data added by 2026_06_23_000002 is copied across, then the old
- * columns + indexes are dropped. The copy uses the query builder so it stays
- * driver-agnostic and respects any table prefix.
+ * Table creation + column removal use the Flarum\Database\Migration helpers; the
+ * data copy stays a raw, driver-agnostic, prefix-safe query-builder chunk.
  */
 
 $FIELDS = [
@@ -18,36 +19,39 @@ $FIELDS = [
     'federated_actor', 'federated_handle', 'federated_inbox',
 ];
 
-$USER_COLUMN_DEFS = [
-    'ap_username' => fn (Blueprint $t) => $t->string('ap_username', 80)->nullable(),
-    'ap_public_key' => fn (Blueprint $t) => $t->text('ap_public_key')->nullable(),
-    'ap_private_key' => fn (Blueprint $t) => $t->text('ap_private_key')->nullable(),
-    'is_federated' => fn (Blueprint $t) => $t->boolean('is_federated')->default(false),
-    'federated_actor' => fn (Blueprint $t) => $t->string('federated_actor', 500)->nullable(),
-    'federated_handle' => fn (Blueprint $t) => $t->string('federated_handle', 255)->nullable(),
-    'federated_inbox' => fn (Blueprint $t) => $t->string('federated_inbox', 500)->nullable(),
-];
+$companion = Migration::createTable('federation_user_data', function (Blueprint $table) {
+    // core users.id is INT UNSIGNED → unsignedInteger FK (errno 3780 otherwise).
+    $table->unsignedInteger('user_id')->primary();
+    $table->string('ap_username', 80)->nullable();
+    $table->text('ap_public_key')->nullable();
+    $table->text('ap_private_key')->nullable();
+    $table->boolean('is_federated')->default(false);
+    $table->string('federated_actor', 500)->nullable();
+    $table->string('federated_handle', 255)->nullable();
+    $table->string('federated_inbox', 500)->nullable();
+    $table->timestamps();
+    // Unique: a member's ap_username must be globally unique (WebFinger resolves
+    // by it). Mirrors leave it NULL, and NULLs are distinct in a unique index.
+    $table->unique('ap_username', 'fed_user_data_ap_username_index');
+    $table->index('federated_actor', 'fed_user_data_federated_actor_index');
+    $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+});
+
+// Removal of the legacy core-table columns; the helper's `down` re-adds them.
+$userCols = Migration::dropColumns('users', [
+    'ap_username' => ['string', 'length' => 80, 'nullable' => true],
+    'ap_public_key' => ['text', 'nullable' => true],
+    'ap_private_key' => ['text', 'nullable' => true],
+    'is_federated' => ['boolean', 'default' => false],
+    'federated_actor' => ['string', 'length' => 500, 'nullable' => true],
+    'federated_handle' => ['string', 'length' => 255, 'nullable' => true],
+    'federated_inbox' => ['string', 'length' => 500, 'nullable' => true],
+]);
 
 return [
-    'up' => function (Builder $schema) use ($FIELDS) {
+    'up' => function (Builder $schema) use ($companion, $userCols, $FIELDS) {
         if (! $schema->hasTable('federation_user_data')) {
-            $schema->create('federation_user_data', function (Blueprint $table) {
-                $table->unsignedInteger('user_id')->primary();
-                $table->string('ap_username', 80)->nullable();
-                $table->text('ap_public_key')->nullable();
-                $table->text('ap_private_key')->nullable();
-                $table->boolean('is_federated')->default(false);
-                $table->string('federated_actor', 500)->nullable();
-                $table->string('federated_handle', 255)->nullable();
-                $table->string('federated_inbox', 500)->nullable();
-                $table->timestamps();
-                // Unique: a member's ap_username must be globally unique (WebFinger
-                // resolves by it). Remote mirrors leave it NULL, and NULLs are
-                // distinct in a unique index, so they don't collide.
-                $table->unique('ap_username', 'fed_user_data_ap_username_index');
-                $table->index('federated_actor', 'fed_user_data_federated_actor_index');
-                $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
-            });
+            $companion['up']($schema);
         }
 
         if (! $schema->hasColumn('users', 'ap_username')) {
@@ -83,19 +87,11 @@ return [
                 // already gone
             }
         }
-        $schema->table('users', function (Blueprint $table) use ($FIELDS) {
-            $table->dropColumn($FIELDS);
-        });
+        $userCols['up']($schema);
     },
 
-    'down' => function (Builder $schema) use ($FIELDS, $USER_COLUMN_DEFS) {
-        foreach ($USER_COLUMN_DEFS as $name => $add) {
-            if (! $schema->hasColumn('users', $name)) {
-                $schema->table('users', function (Blueprint $table) use ($add) {
-                    $add($table);
-                });
-            }
-        }
+    'down' => function (Builder $schema) use ($companion, $userCols, $FIELDS) {
+        $userCols['down']($schema); // re-add the columns
 
         if ($schema->hasTable('federation_user_data')) {
             $db = $schema->getConnection();
@@ -108,7 +104,7 @@ return [
                     $db->table('users')->where('id', $r->user_id)->update($update);
                 }
             }, 'user_id');
-            $schema->drop('federation_user_data');
+            $companion['down']($schema);
         }
     },
 ];

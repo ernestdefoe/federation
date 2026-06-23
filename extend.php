@@ -12,7 +12,9 @@ use ErnestDefoe\Federation\Controller;
 use ErnestDefoe\Federation\FederationUserData;
 use ErnestDefoe\Federation\Listener\AnnouncePost;
 use ErnestDefoe\Federation\PostFederationMeta;
+use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Api\Resource\ForumResource;
+use Flarum\Api\Resource\PostResource;
 use Flarum\Api\Resource\UserResource;
 use Flarum\Extend;
 use Flarum\Post\Event\Posted;
@@ -63,7 +65,17 @@ return [
         ->fields(ForumFederationFields::class),
 
     (new Extend\ApiResource(UserResource::class))
-        ->fields(UserFederationFields::class),
+        ->fields(UserFederationFields::class)
+        // The federationHandle field reads $user->federationData; eager-load it
+        // so the member directory / profile don't lazy-load it per row (N+1).
+        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoad('federationData')),
+
+    // When a post/discussion author is included, load their federationData too
+    // (e.g. a 30-post discussion page → one query, not one per author).
+    (new Extend\ApiResource(PostResource::class))
+        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoadWhenIncluded(['user' => ['user.federationData']])),
+    (new Extend\ApiResource(DiscussionResource::class))
+        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoadWhenIncluded(['user' => ['user.federationData']])),
 
     // Federation data lives in companion tables, related to the core models so
     // it never bloats the users/posts rows. Accessed via Fed::* / the relations.

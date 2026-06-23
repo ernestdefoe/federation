@@ -4,6 +4,7 @@ namespace ErnestDefoe\Federation\Controller;
 
 use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\Service\DocumentBuilder;
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\Http\Exception\RouteNotFoundException;
@@ -15,10 +16,11 @@ class NoteController extends AbstractFederationController
 {
     public function __construct(
         Settings $settings,
+        Fed $fed,
         protected Federation $federation,
         protected DocumentBuilder $documents,
     ) {
-        parent::__construct($settings);
+        parent::__construct($settings, $fed);
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface

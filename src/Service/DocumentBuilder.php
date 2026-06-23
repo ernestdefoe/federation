@@ -19,12 +19,13 @@ class DocumentBuilder
     public function __construct(
         protected Settings $settings,
         protected KeyManager $keys,
+        protected Fed $fed,
     ) {}
 
     /** The author who federates a discussion/post, or null = the community. */
     public function authorOf(?User $user): ?User
     {
-        return ($user && ! Fed::isFederated($user)) ? $user : null;
+        return ($user && ! $this->fed->isFederated($user)) ? $user : null;
     }
 
     // ---- Actors ------------------------------------------------------------

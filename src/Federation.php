@@ -41,6 +41,7 @@ class Federation
         protected DocumentBuilder $documents,
         protected LoggerInterface $log,
         protected Bus $bus,
+        protected Fed $fed,
     ) {}
 
     /** Only public, visible, member-authored discussions federate. */
@@ -50,7 +51,7 @@ class Federation
             && ! $discussion->is_private
             && $discussion->hidden_at === null
             && $discussion->user
-            && ! Fed::isFederated($discussion->user);
+            && ! $this->fed->isFederated($discussion->user);
     }
 
     /** Announce a brand-new discussion: community boost + author's own followers. */
@@ -91,7 +92,7 @@ class Federation
                 return;
             }
             // Never re-broadcast a reply that arrived FROM the fediverse.
-            if (Fed::isFederated($post->user)) {
+            if ($this->fed->isFederated($post->user)) {
                 return;
             }
             $author = $this->documents->authorOf($post->user);

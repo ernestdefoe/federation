@@ -3,6 +3,7 @@
 namespace ErnestDefoe\Federation\Controller;
 
 use ErnestDefoe\Federation\Service\DocumentBuilder;
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Psr\Http\Message\ResponseInterface;
@@ -15,9 +16,10 @@ class OutboxController extends AbstractFederationController
 
     public function __construct(
         Settings $settings,
+        Fed $fed,
         protected DocumentBuilder $documents,
     ) {
-        parent::__construct($settings);
+        parent::__construct($settings, $fed);
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
@@ -41,7 +43,7 @@ class OutboxController extends AbstractFederationController
         }
 
         $items = $this->discussions()
-            ->with(['firstPost', 'user'])
+            ->with(['firstPost', 'user', 'user.federationData'])
             ->latest()
             ->forPage($page, self::PER_PAGE)
             ->get()

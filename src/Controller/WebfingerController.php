@@ -3,6 +3,7 @@
 namespace ErnestDefoe\Federation\Controller;
 
 use ErnestDefoe\Federation\Service\DocumentBuilder;
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Http\Exception\RouteNotFoundException;
 use Illuminate\Support\Arr;
@@ -14,9 +15,10 @@ class WebfingerController extends AbstractFederationController
 {
     public function __construct(
         Settings $settings,
+        Fed $fed,
         protected DocumentBuilder $documents,
     ) {
-        parent::__construct($settings);
+        parent::__construct($settings, $fed);
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface

@@ -42,7 +42,11 @@ class HttpSigner
 
         $priv = $signer ? $this->keys->userKeys($signer)['private'] : $this->keys->communityKeys()['private'];
         $keyId = ($signer ? $this->settings->userActorUrl($signer) : $this->settings->actorUrl()).'#main-key';
-        openssl_sign(implode("\n", $lines), $sig, $priv, OPENSSL_ALGO_SHA256);
+        // A malformed/expired key makes openssl_sign return false and $sig empty —
+        // that would ship a blank signature and fail silently. Surface it instead.
+        if (openssl_sign(implode("\n", $lines), $sig, $priv, OPENSSL_ALGO_SHA256) !== true) {
+            throw new \RuntimeException('Federation HTTP signing failed: '.(openssl_error_string() ?: 'unknown OpenSSL error'));
+        }
         $headers['Signature'] = sprintf(
             'keyId="%s",algorithm="rsa-sha256",headers="%s",signature="%s"',
             $keyId,

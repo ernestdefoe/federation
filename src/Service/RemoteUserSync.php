@@ -5,6 +5,7 @@ namespace ErnestDefoe\Federation\Service;
 use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\FederationUserData;
 use Flarum\User\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 /**
@@ -16,6 +17,7 @@ class RemoteUserSync
 {
     public function __construct(
         protected ActorFetcher $fetcher,
+        protected Fed $fed,
     ) {}
 
     /** Find-or-create a local "federated" user mirroring a remote actor. */
@@ -35,19 +37,27 @@ class RemoteUserSync
 
         // Core user row first (a new mirror needs an id before the companion FK).
         if (! $existing) {
-            $username = (string) ($doc['preferredUsername'] ?? ('fedi'.substr(sha1($actorUri), 0, 8)));
+            $base = (string) ($doc['preferredUsername'] ?? ('fedi'.substr(sha1($actorUri), 0, 8)));
             $user->forceFill([
-                'username' => $this->uniqueLocalUsername($username),
+                'username' => $this->uniqueLocalUsername($base),
                 'email' => 'fedi-'.sha1($actorUri).'@federated.invalid',
                 'password' => Str::random(40),
                 'is_email_confirmed' => true,
                 'joined_at' => \Carbon\Carbon::now(),
             ]);
-            $user->save();
+            try {
+                $user->save();
+            } catch (QueryException $e) {
+                // Lost the username race against a concurrent mirror of a different
+                // actor sharing the same preferredUsername — retry with a
+                // collision-proof suffix so the inbound activity isn't dropped.
+                $user->username = $this->uniqueLocalUsername($base).'-'.substr(sha1(uniqid('', true)), 0, 6);
+                $user->save();
+            }
         }
 
         // Federation data → companion table.
-        $fed = Fed::ensure($user);
+        $fed = $this->fed->ensure($user);
         $fed->is_federated = true;
         $fed->federated_actor = $actorUri;
         if ($doc) {

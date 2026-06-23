@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Job\ProcessInboxActivity;
 use ErnestDefoe\Federation\Service\Settings;
 use ErnestDefoe\Federation\Service\SignatureVerifier;
@@ -21,11 +22,14 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 trait HandlesInbox
 {
+    /** Cap on the inbox body we'll buffer + queue (AP activities are tiny). */
+    private const MAX_BODY = 65536; // 64 KB
+
     protected Bus $bus;
 
-    public function __construct(Settings $settings, Bus $bus)
+    public function __construct(Settings $settings, Fed $fed, Bus $bus)
     {
-        parent::__construct($settings);
+        parent::__construct($settings, $fed);
         $this->bus = $bus;
     }
 
@@ -37,11 +41,22 @@ trait HandlesInbox
             return new EmptyResponse(401);
         }
 
+        // Reject oversized bodies before buffering them into a queue payload — a
+        // hostile peer could otherwise bloat the job table with multi-MB rows.
+        if ((int) $request->getHeaderLine('Content-Length') > self::MAX_BODY) {
+            return new EmptyResponse(413);
+        }
+        $body = $request->getBody();
+        if ($body->isSeekable()) {
+            $body->rewind();
+        }
+        $raw = $body->read(self::MAX_BODY); // bounded read for chunked/no-length bodies
+
         $this->bus->dispatch(new ProcessInboxActivity(
             strtolower($request->getMethod()),
             $request->getRequestTarget(),
             SignatureVerifier::normaliseHeaders($request),
-            (string) $request->getBody(),
+            $raw,
             $target?->id,
             time(), // receipt time — freshness is checked against this, not job-run time
         ));

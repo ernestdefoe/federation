@@ -21,6 +21,7 @@ abstract class AbstractFederationController implements RequestHandlerInterface
 
     public function __construct(
         protected Settings $settings,
+        protected Fed $fed,
     ) {}
 
     /** Abort with 404 when federation is switched off in admin. */
@@ -53,7 +54,7 @@ abstract class AbstractFederationController implements RequestHandlerInterface
     {
         $id = $this->routeId($request);
         $user = $id > 0 ? User::find($id) : null;
-        if (! $user || Fed::isFederated($user)) {
+        if (! $user || $this->fed->isFederated($user)) {
             throw new RouteNotFoundException;
         }
 

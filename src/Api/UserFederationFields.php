@@ -16,6 +16,7 @@ class UserFederationFields
 {
     public function __construct(
         protected Settings $settings,
+        protected Fed $fed,
     ) {}
 
     /** @return array<int, \Tobyz\JsonApiServer\Schema\Field\Field> */
@@ -24,7 +25,7 @@ class UserFederationFields
         return [
             Schema\Str::make('federationHandle')
                 ->nullable()
-                ->get(fn (User $user) => ($this->settings->enabled() && ! Fed::isFederated($user))
+                ->get(fn (User $user) => ($this->settings->enabled() && ! $this->fed->isFederated($user))
                     ? $this->settings->previewUserHandle($user)
                     : null),
         ];

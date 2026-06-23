@@ -36,6 +36,7 @@ class InboxProcessor
         protected Settings $settings,
         protected Events $events,
         protected Bus $bus,
+        protected Fed $fed,
     ) {}
 
     /** @param array<string,string> $headers lower-cased header name => value */
@@ -205,8 +206,8 @@ class InboxProcessor
             return;
         }
         $author = $post->user;
-        if (! Fed::isFederated($author)
-            || ! $this->actorAuthorized($signedBy, (string) Fed::federatedActor($author))) {
+        if (! $this->fed->isFederated($author)
+            || ! $this->actorAuthorized($signedBy, (string) $this->fed->federatedActor($author))) {
             return; // only the original author may delete their federated post
         }
 

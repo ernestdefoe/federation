@@ -4,6 +4,7 @@ namespace ErnestDefoe\Federation\Service;
 
 use ErnestDefoe\Federation\FederationUserData;
 use Flarum\User\User;
+use Illuminate\Database\ConnectionResolverInterface;
 
 /**
  * Owns RSA keypairs for the community actor and each member actor.
@@ -26,6 +27,7 @@ class KeyManager
 
     public function __construct(
         protected Settings $settings,
+        protected ConnectionResolverInterface $db,
     ) {}
 
     /** @return array{0:string,1:string} [publicPem, privatePem] */
@@ -73,14 +75,12 @@ class KeyManager
     /** @return array{public:string,private:string} a member's own keypair (lazy) */
     public function userKeys(User $user): array
     {
-        $conn = FederationUserData::query()->getConnection();
-
         // Serialise first-time generation: two concurrent actor fetches must not
         // each generate a keypair and clobber each other — that would leave a
         // public key not matching the already-distributed private key, breaking
         // the actor permanently. Ensure the row exists, then lock it.
-        return $conn->transaction(function () use ($user, $conn) {
-            $conn->table('federation_user_data')->insertOrIgnore(['user_id' => $user->id]);
+        return $this->db->connection()->transaction(function () use ($user) {
+            FederationUserData::query()->insertOrIgnore(['user_id' => $user->id]);
             $data = FederationUserData::whereKey($user->id)->lockForUpdate()->first();
             $user->setRelation('federationData', $data);
 
