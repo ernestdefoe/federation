@@ -60,11 +60,15 @@ class SignatureVerifier
                 : $h.': '.($headers[strtolower($h)] ?? '');
         }
 
-        if (str_contains($params['headers'], 'digest')) {
-            $expected = 'SHA-256='.base64_encode(hash('sha256', $rawBody, true));
-            if (! hash_equals($expected, $headers['digest'] ?? '')) {
-                return null;
-            }
+        // Inbox POSTs always carry a body; REQUIRE it to be integrity-covered.
+        // Without a signed digest a proxy/TLS-terminator could swap the activity
+        // (Follow→Delete, actor URIs, …) while the signature still verifies.
+        if (! str_contains($params['headers'], 'digest')) {
+            return null;
+        }
+        $expected = 'SHA-256='.base64_encode(hash('sha256', $rawBody, true));
+        if (! hash_equals($expected, $headers['digest'] ?? '')) {
+            return null;
         }
 
         if (openssl_verify(implode("\n", $lines), base64_decode($params['signature']), $pem, OPENSSL_ALGO_SHA256) !== 1) {

@@ -2,9 +2,7 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
-use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Job\ProcessInboxActivity;
-use ErnestDefoe\Federation\Service\Settings;
 use ErnestDefoe\Federation\Service\SignatureVerifier;
 use Flarum\User\User;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
@@ -25,13 +23,9 @@ trait HandlesInbox
     /** Cap on the inbox body we'll buffer + queue (AP activities are tiny). */
     private const MAX_BODY = 65536; // 64 KB
 
+    // Bus is injected by the using controller's own constructor (the trait no
+    // longer defines a constructor, so it isn't coupled to a class hierarchy).
     protected Bus $bus;
-
-    public function __construct(Settings $settings, Fed $fed, Bus $bus)
-    {
-        parent::__construct($settings, $fed);
-        $this->bus = $bus;
-    }
 
     protected function processInbox(ServerRequestInterface $request, ?User $target): ResponseInterface
     {

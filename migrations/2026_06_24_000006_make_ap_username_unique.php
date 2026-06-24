@@ -11,6 +11,12 @@ use Illuminate\Database\Schema\Builder;
  *
  * Defensive: if pre-existing duplicates make the unique index impossible, keep
  * the plain index rather than failing the whole upgrade.
+ *
+ * Raw schema builder on purpose: Flarum\Database\Migration only wraps table and
+ * column operations (createTable/addColumns/dropColumns) — it has no helper for
+ * swapping an index's uniqueness — so there is nothing to delegate to here. The
+ * builder is the same prefix-aware $schema the helpers wrap, so table prefixes
+ * are still applied correctly.
  */
 $idx = 'fed_user_data_ap_username_index';
 

@@ -48,21 +48,42 @@ class KeyManager
     /** @return array{public:string,private:string} PEM strings */
     public function communityKeys(): array
     {
+        // Fast path: already generated (cached read, no lock needed).
         $pub = (string) $this->settings->get('public_key', '');
         $priv = $this->decrypt((string) $this->settings->get('private_key', ''));
 
         if ($pub !== '' && $priv !== '') {
-            // Opportunistically migrate a legacy plaintext key to ciphertext.
+            // Opportunistically migrate a legacy plaintext key to ciphertext
+            // (idempotent + race-safe — re-encrypting yields the same plaintext).
             $this->ensureEncryptedSetting('private_key');
 
             return ['public' => $pub, 'private' => $priv];
         }
 
-        [$pub, $priv] = $this->generateKeypair();
-        $this->settings->set('public_key', $pub);
-        $this->settings->set('private_key', $this->encrypt($priv));
+        // First-use generation: serialise under a settings-row lock so two
+        // concurrent /federation/actor hits can't generate competing keypairs —
+        // a mismatched public/private key would break the actor permanently.
+        return $this->db->connection()->transaction(function () {
+            $conn = $this->db->connection();
+            $privKey = Settings::PREFIX.'private_key';
+            $pubKey = Settings::PREFIX.'public_key';
 
-        return ['public' => $pub, 'private' => $priv];
+            $conn->table('settings')->insertOrIgnore(['key' => $privKey, 'value' => '']);
+            $conn->table('settings')->where('key', $privKey)->lockForUpdate()->first();
+
+            // Re-read straight from the (locked) DB row, not the cached repo.
+            $pub = (string) ($conn->table('settings')->where('key', $pubKey)->value('value') ?? '');
+            $priv = $this->decrypt((string) ($conn->table('settings')->where('key', $privKey)->value('value') ?? ''));
+            if ($pub !== '' && $priv !== '') {
+                return ['public' => $pub, 'private' => $priv];
+            }
+
+            [$pub, $priv] = $this->generateKeypair();
+            $this->settings->set('public_key', $pub);
+            $this->settings->set('private_key', $this->encrypt($priv));
+
+            return ['public' => $pub, 'private' => $priv];
+        });
     }
 
     public function communityPublicKeyPem(): string

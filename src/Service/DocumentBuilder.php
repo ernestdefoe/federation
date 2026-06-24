@@ -6,6 +6,7 @@ use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Federation;
 use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
+use Flarum\Post\Post;
 use Flarum\User\User;
 use Illuminate\Support\Str;
 
@@ -207,6 +208,48 @@ class DocumentBuilder
             'to' => ['https://www.w3.org/ns/activitystreams#Public'],
             'cc' => [$this->settings->base().'/federation/followers'],
             'object' => $noteId,
+        ];
+    }
+
+    /** A Create activity for a local reply (a Note inReplyTo the discussion). */
+    public function createActivityForReply(Post $post, Discussion $discussion): array
+    {
+        $author = $this->authorOf($post->user);
+        $actor = $author ? $this->settings->userActorUrl($author) : $this->settings->actorUrl();
+        $followers = $author
+            ? $this->settings->base().'/federation/users/'.$author->id.'/followers'
+            : $this->settings->base().'/federation/followers';
+        $link = $this->discussionUrl($discussion).'/'.$post->number;
+        $published = ($post->created_at ?? \Carbon\Carbon::now())->toAtomString();
+
+        $body = '';
+        try {
+            $body = $post->formatContent();
+        } catch (\Throwable $e) {
+            $body = e((string) $post->content);
+        }
+        $content = $body.'<p><a href="'.e($link).'">'.e($link).'</a></p>';
+        $id = $this->noteId($discussion).'#post-'.$post->id;
+
+        return [
+            '@context' => 'https://www.w3.org/ns/activitystreams',
+            'id' => $id,
+            'type' => 'Create',
+            'actor' => $actor,
+            'published' => $published,
+            'to' => ['https://www.w3.org/ns/activitystreams#Public'],
+            'cc' => [$followers],
+            'object' => [
+                'id' => $id,
+                'type' => 'Note',
+                'attributedTo' => $actor,
+                'inReplyTo' => $this->noteId($discussion),
+                'content' => $content,
+                'url' => $link,
+                'published' => $published,
+                'to' => ['https://www.w3.org/ns/activitystreams#Public'],
+                'cc' => [$followers],
+            ],
         ];
     }
 

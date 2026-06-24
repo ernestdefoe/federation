@@ -80,7 +80,9 @@ class Federation
                 );
             }
         } catch (\Throwable $e) {
-            $this->log->debug('[federation] announceDiscussion skipped: '.$e->getMessage());
+            // A caught exception here means federation actually broke — warn so it
+            // surfaces at the default production log level, not silent debug.
+            $this->log->warning('[federation] announceDiscussion failed: '.$e->getMessage(), ['exception' => $e]);
         }
     }
 
@@ -96,46 +98,12 @@ class Federation
                 return;
             }
             $author = $this->documents->authorOf($post->user);
-            $actor = $author ? $this->settings->userActorUrl($author) : $this->settings->actorUrl();
-            $followers = $author
-                ? $this->settings->base().'/federation/users/'.$author->id.'/followers'
-                : $this->settings->base().'/federation/followers';
-            $link = $this->documents->discussionUrl($discussion).'/'.$post->number;
+            $activity = $this->documents->createActivityForReply($post, $discussion);
 
             // Remote participants already in this thread (bounded by thread size).
             $remoteInboxes = FederationUserData::whereIn('user_id', $discussion->posts()->pluck('user_id'))
                 ->where('is_federated', true)->pluck('federated_inbox')->filter()->unique()->values()->all();
 
-            $published = ($post->created_at ?? \Carbon\Carbon::now())->toAtomString();
-            $body = '';
-            try {
-                $body = $post->formatContent();
-            } catch (\Throwable $e) {
-                $body = e((string) $post->content);
-            }
-            $content = $body.'<p><a href="'.e($link).'">'.e($link).'</a></p>';
-            $noteId = $this->documents->noteId($discussion);
-
-            $activity = [
-                '@context' => 'https://www.w3.org/ns/activitystreams',
-                'id' => $noteId.'#post-'.$post->id,
-                'type' => 'Create',
-                'actor' => $actor,
-                'published' => $published,
-                'to' => ['https://www.w3.org/ns/activitystreams#Public'],
-                'cc' => [$followers],
-                'object' => [
-                    'id' => $noteId.'#post-'.$post->id,
-                    'type' => 'Note',
-                    'attributedTo' => $actor,
-                    'inReplyTo' => $noteId,
-                    'content' => $content,
-                    'url' => $link,
-                    'published' => $published,
-                    'to' => ['https://www.w3.org/ns/activitystreams#Public'],
-                    'cc' => [$followers],
-                ],
-            ];
             // Thread participants → one bounded job; the author's followers →
             // chunked jobs (replies aren't boosted to community followers —
             // following the community gives you new topics, not every reply).
@@ -149,7 +117,7 @@ class Federation
                 );
             }
         } catch (\Throwable $e) {
-            $this->log->debug('[federation] announceReply skipped: '.$e->getMessage());
+            $this->log->warning('[federation] announceReply failed: '.$e->getMessage(), ['exception' => $e]);
         }
     }
 
