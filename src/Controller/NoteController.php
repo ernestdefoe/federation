@@ -37,7 +37,7 @@ class NoteController extends AbstractFederationController
         $discussion->loadMissing('firstPost', 'user');
 
         return $this->ap(
-            ['@context' => 'https://www.w3.org/ns/activitystreams']
+            ['@context' => $this->documents->context()]
             + $this->documents->noteForDiscussion($discussion)
         );
     }
