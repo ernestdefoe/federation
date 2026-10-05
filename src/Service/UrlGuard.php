@@ -62,15 +62,34 @@ class UrlGuard
         return $this->pinnedIp($url) !== null;
     }
 
-    /** @return string[] resolved IP literals for $host (the literal itself if it is one) */
+    /**
+     * @return string[] resolved IP literals for $host (the literal itself if it is one)
+     *
+     * Only a canonical IP literal or a real DNS name is accepted. Numeric shorthands
+     * that are not canonical dotted quads — 0177.0.0.1, 0x7f.1, 2130706433, 127.1 —
+     * are refused outright: PHP's own checks do not read them as IPs, but
+     * gethostbyname() and curl do, as loopback. There is deliberately no
+     * gethostbyname() fallback, for the same reason.
+     */
     private function resolve(string $host): array
     {
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             return [$host];
         }
 
+        $name = strtolower(rtrim($host, '.'));
+        if ($name === '' || ! preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)*$/', $name)) {
+            return []; // not a plain (punycode) hostname
+        }
+        // A last label that is all digits or 0x-hex makes URL parsers read the whole
+        // host as an IPv4 address in shorthand form, so it is never a real name.
+        $labels = explode('.', $name);
+        if (preg_match('/^(0x[0-9a-f]*|[0-9]+)$/', end($labels))) {
+            return [];
+        }
+
         $ips = [];
-        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+        $records = @dns_get_record($name, DNS_A | DNS_AAAA);
         if (is_array($records)) {
             foreach ($records as $r) {
                 if (! empty($r['ip'])) {
@@ -81,23 +100,53 @@ class UrlGuard
                 }
             }
         }
-        if ($ips === []) {
-            $resolved = gethostbyname($host);
-            if ($resolved !== '' && $resolved !== $host) {
-                $ips[] = $resolved;
-            }
-        }
 
         return $ips;
     }
 
-    /** Public = not private (RFC-1918 / fc00::/7) and not reserved (loopback, link-local, …). */
+    /**
+     * Public = not private (RFC-1918 / fc00::/7), not reserved (loopback,
+     * link-local, …) and none of the special ranges PHP's filter lets through but
+     * which can reach internal hosts: carrier-grade NAT, IETF/benchmark blocks,
+     * multicast, and IPv6 prefixes that embed an IPv4 address (NAT64, 6to4).
+     */
     private function isPublic(string $ip): bool
     {
-        return filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        ) !== false;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+        $blocked = [
+            '100.64.0.0/10', '192.0.0.0/24', '198.18.0.0/15', '224.0.0.0/4',
+            '64:ff9b::/96', '64:ff9b:1::/48', '2002::/16', '2001::/32', '2001:db8::/32', '100::/64', 'ff00::/8',
+        ];
+        foreach ($blocked as $cidr) {
+            if (self::inCidr($ip, $cidr)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function inCidr(string $ip, string $cidr): bool
+    {
+        [$net, $bits] = explode('/', $cidr);
+        $a = @inet_pton($ip);
+        $b = @inet_pton($net);
+        if ($a === false || $b === false || strlen($a) !== strlen($b)) {
+            return false;
+        }
+        $bits = (int) $bits;
+        $bytes = intdiv($bits, 8);
+        if (substr($a, 0, $bytes) !== substr($b, 0, $bytes)) {
+            return false;
+        }
+        $rem = $bits % 8;
+        if ($rem === 0) {
+            return true;
+        }
+        $mask = (0xFF << (8 - $rem)) & 0xFF;
+
+        return (ord($a[$bytes]) & $mask) === (ord($b[$bytes]) & $mask);
     }
 }
