@@ -17,6 +17,9 @@ use Psr\Log\LoggerInterface;
  */
 class ActorFetcher
 {
+    /** Largest actor document accepted; real ones are a few KB. */
+    private const MAX_DOCUMENT = 1048576; // 1 MB
+
     public function __construct(
         protected HttpSigner $signer,
         protected UrlGuard $guard,
@@ -54,11 +57,14 @@ class ActorFetcher
                 // The guard checked THIS host only; a redirect could point anywhere
                 // (loopback, metadata), so redirects are never followed.
                 'allow_redirects' => false,
+                'stream' => true, // read at most MAX_DOCUMENT bytes, below
             ] + $this->pinOption($url, $pin));
             if ($res->getStatusCode() >= 200 && $res->getStatusCode() < 300) {
-                $decoded = json_decode((string) $res->getBody(), true);
+                $raw = $this->readCapped($res->getBody());
+                $decoded = $raw === null ? null : json_decode($raw, true);
                 $data = is_array($decoded) ? $decoded : null;
             }
+            $res->getBody()->close();
         } catch (\Throwable $e) {
             $this->log->debug('[federation] fetchActor failed: '.$e->getMessage());
         }
@@ -91,14 +97,38 @@ class ActorFetcher
                 'body' => $body,
                 'http_errors' => false,
                 'allow_redirects' => false, // see fetchActor()
+                'stream' => true, // the reply body is never read, so never buffered
             ] + $this->pinOption($inbox, $pin));
+            $status = $res->getStatusCode();
+            $res->getBody()->close();
 
-            return $res->getStatusCode();
+            return $status;
         } catch (\Throwable $e) {
             $this->log->debug('[federation] delivery failed to '.$inbox.': '.$e->getMessage());
 
             return 0;
         }
+    }
+
+    /**
+     * The body, or null when it is larger than MAX_DOCUMENT. Read in pieces from
+     * the stream so a hostile server cannot push hundreds of MB into a worker.
+     */
+    private function readCapped(\Psr\Http\Message\StreamInterface $body): ?string
+    {
+        $buf = '';
+        while (! $body->eof()) {
+            $chunk = $body->read(65536);
+            if ($chunk === '') {
+                break;
+            }
+            $buf .= $chunk;
+            if (strlen($buf) > self::MAX_DOCUMENT) {
+                return null;
+            }
+        }
+
+        return $buf;
     }
 
     /**
