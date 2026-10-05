@@ -71,11 +71,25 @@ return [
         ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoad('federationData')),
 
     // When a post/discussion author is included, load their federationData too
-    // (e.g. a 30-post discussion page → one query, not one per author).
+    // (e.g. a 30-post discussion page → one query, not one per author). Every
+    // included user path is covered — the discussion list also includes
+    // lastPostedUser and mostRelevantPost.user, and each of those used to cost
+    // a query per row. Only to-one paths: eager-loading through a to-many
+    // relation here would load all of it, not the page the endpoint serves.
     (new Extend\ApiResource(PostResource::class))
-        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoadWhenIncluded(['user' => ['user.federationData']])),
+        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoadWhenIncluded([
+            'user' => ['user.federationData'],
+            'editedUser' => ['editedUser.federationData'],
+            'hiddenUser' => ['hiddenUser.federationData'],
+        ])),
     (new Extend\ApiResource(DiscussionResource::class))
-        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoadWhenIncluded(['user' => ['user.federationData']])),
+        ->endpoint(['index', 'show'], fn ($endpoint) => $endpoint->eagerLoadWhenIncluded([
+            'user' => ['user.federationData'],
+            'lastPostedUser' => ['lastPostedUser.federationData'],
+            'firstPost.user' => ['firstPost.user.federationData'],
+            'lastPost.user' => ['lastPost.user.federationData'],
+            'mostRelevantPost.user' => ['mostRelevantPost.user.federationData'],
+        ])),
 
     // Federation data lives in companion tables, related to the core models so
     // it never bloats the users/posts rows. Accessed via Fed::* / the relations.

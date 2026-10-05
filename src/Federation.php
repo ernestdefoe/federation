@@ -100,8 +100,9 @@ class Federation
             $author = $this->documents->authorOf($post->user);
             $activity = $this->documents->createActivityForReply($post, $discussion);
 
-            // Remote participants already in this thread (bounded by thread size).
-            $remoteInboxes = FederationUserData::whereIn('user_id', $discussion->posts()->pluck('user_id'))
+            // Remote participants already in this thread. DISTINCT, or a reply
+            // to a 10,000-post thread sent 10,000 ids into the IN list.
+            $remoteInboxes = FederationUserData::whereIn('user_id', $discussion->posts()->whereNotNull('user_id')->distinct()->pluck('user_id'))
                 ->where('is_federated', true)->pluck('federated_inbox')->filter()->unique()->values()->all();
 
             // Thread participants → one bounded job; the author's followers →
