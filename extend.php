@@ -54,7 +54,11 @@ return [
 
     // ---- Push new discussions + replies to the fediverse (queued) -----------
     (new Extend\Event())
-        ->listen(Posted::class, AnnouncePost::class),
+        ->listen(Posted::class, AnnouncePost::class)
+        // A post held for approval is not public yet, so it is skipped when
+        // posted and federated once a moderator approves it. A plain class-name
+        // string: harmless when flarum/approval is not installed.
+        ->listen('Flarum\\Approval\\Event\\PostWasApproved', AnnouncePost::class),
 
     // ---- Forum payload: the community handle + per-user handle ---------------
     // Invokable field classes (not closures) so Settings is constructor-injected.

@@ -7,6 +7,7 @@ use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
 use Flarum\Post\Post;
+use Flarum\User\Guest;
 use Flarum\User\User;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Psr\Log\LoggerInterface;
@@ -44,14 +45,31 @@ class Federation
         protected Fed $fed,
     ) {}
 
-    /** Only public, visible, member-authored discussions federate. */
+    /**
+     * Only discussions a logged-out visitor could read, started by a real
+     * (non-federated) member, federate. "Not private and not hidden" is not
+     * enough: tags restricted to members or staff, a forum guests cannot view
+     * at all, and discussions still awaiting approval must stay on the forum.
+     * Flarum's own guest visibility rules decide, so every extension's
+     * restrictions (tags, approval, …) apply.
+     */
     public function shouldFederate(Discussion $discussion): bool
     {
         return $this->settings->enabled()
             && ! $discussion->is_private
             && $discussion->hidden_at === null
+            && $discussion->is_approved !== false
             && $discussion->user
-            && ! $this->fed->isFederated($discussion->user);
+            && ! $this->fed->isFederated($discussion->user)
+            && Discussion::query()->whereVisibleTo(new Guest)->whereKey($discussion->id)->exists();
+    }
+
+    /** A post federates only when a logged-out visitor could read it. */
+    public function postIsPublic(Post $post): bool
+    {
+        return $post->is_approved !== false
+            && $post->hidden_at === null
+            && Post::query()->whereVisibleTo(new Guest)->whereKey($post->id)->exists();
     }
 
     /** Announce a brand-new discussion: community boost + author's own followers. */
@@ -90,7 +108,7 @@ class Federation
     public function announceReply(Post $post, Discussion $discussion): void
     {
         try {
-            if (! ($post instanceof CommentPost) || ! $this->shouldFederate($discussion)) {
+            if (! ($post instanceof CommentPost) || ! $this->shouldFederate($discussion) || ! $this->postIsPublic($post)) {
                 return;
             }
             // Never re-broadcast a reply that arrived FROM the fediverse.

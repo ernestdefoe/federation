@@ -29,6 +29,10 @@
   "extra": {
     "flarum-extension": {
       "title": "Federation (ActivityPub)",
+      "optional-dependencies": [
+        "flarum/approval",
+        "flarum/tags"
+      ],
       "category": "feature",
       "icon": {
         "name": "fas fa-globe",

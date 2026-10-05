@@ -6,6 +6,7 @@ use ErnestDefoe\Federation\Service\DocumentBuilder;
 use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
+use Flarum\User\Guest;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -30,6 +31,7 @@ class UserOutboxController extends AbstractFederationController
         $id = $this->settings->base().'/federation/users/'.$user->id.'/outbox';
         $page = (int) ($request->getQueryParams()['page'] ?? 0);
         $base = Discussion::query()
+            ->whereVisibleTo(new Guest) // restricted tags, approval, guest access
             ->where('user_id', $user->id)
             ->where('is_private', false)
             ->whereNull('hidden_at');

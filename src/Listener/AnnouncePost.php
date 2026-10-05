@@ -14,7 +14,8 @@ use Flarum\Post\Event\Posted;
  *    participants already in the thread.
  *
  * Delivery is queued; everything is a no-op unless federation is enabled and the
- * discussion is public, visible and member-authored (see Federation::shouldFederate).
+ * discussion is readable by guests and member-authored (see Federation::shouldFederate).
+ * A post held for approval federates when it is approved (PostWasApproved).
  */
 class AnnouncePost
 {
@@ -22,9 +23,10 @@ class AnnouncePost
         protected Federation $federation,
     ) {}
 
-    public function handle(Posted $event): void
+    /** @param Posted|\Flarum\Approval\Event\PostWasApproved $event */
+    public function handle(object $event): void
     {
-        $post = $event->post;
+        $post = $event->post ?? null;
         if (! ($post instanceof CommentPost)) {
             return;
         }

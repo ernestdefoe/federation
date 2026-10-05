@@ -6,6 +6,7 @@ use ErnestDefoe\Federation\Service\DocumentBuilder;
 use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
+use Flarum\User\Guest;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -68,10 +69,11 @@ class OutboxController extends AbstractFederationController
         return $this->ap($doc);
     }
 
-    /** Public, visible discussions authored by real (non-federated) members. */
+    /** Discussions a guest can read, authored by real (non-federated) members. */
     protected function discussions()
     {
         return Discussion::query()
+            ->whereVisibleTo(new Guest)
             ->where('is_private', false)
             ->whereNull('hidden_at')
             ->whereHas('user', fn ($q) => $q->whereDoesntHave('federationData', fn ($q2) => $q2->where('is_federated', true)));
