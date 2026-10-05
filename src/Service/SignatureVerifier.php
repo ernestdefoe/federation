@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\Federation\Service;
 
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -31,6 +32,7 @@ class SignatureVerifier
 
     public function __construct(
         protected ActorFetcher $fetcher,
+        protected Cache $cache,
     ) {}
 
     /**
@@ -91,7 +93,17 @@ class SignatureVerifier
             return null;
         }
 
-        return $this->keyOwner($params['keyId'], $actor, $pem);
+        $owner = $this->keyOwner($params['keyId'], $actor, $pem);
+
+        // A valid signature is accepted once: the same signed request replayed
+        // inside the Date window is dropped. Remembered for twice the window so
+        // a replay at either edge is still recognised.
+        if ($owner !== null
+            && ! $this->cache->add('federation:sig:'.sha1($params['keyId']."\n".$params['signature']), 1, 2 * self::MAX_CLOCK_SKEW_SECONDS)) {
+            return null;
+        }
+
+        return $owner;
     }
 
     /**
