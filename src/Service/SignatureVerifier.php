@@ -80,10 +80,60 @@ class SignatureVerifier
             return null;
         }
 
-        // The signing actor URI (key owner if published, else keyId), normalised.
-        $owner = (string) ($actor['publicKey']['owner'] ?? $actor['id'] ?? $params['keyId']);
+        return $this->keyOwner($params['keyId'], $actor, $pem);
+    }
 
-        return trim(strtok($owner, '#') ?: $owner);
+    /**
+     * The actor that really owns the key, or null when the key document claims an
+     * owner it cannot prove. Without this, anyone could publish their own key with
+     * `owner` set to somebody else's actor and act as them.
+     *
+     * - The owner must be on the same origin as the keyId (a server can only speak
+     *   for its own accounts).
+     * - When the keyId was the owner's own actor document (Mastodon, Lemmy:
+     *   …/users/alice#main-key), that is proof enough. Otherwise (a separate key
+     *   document, as GoToSocial publishes) the owner's actor is fetched and must
+     *   list this same key.
+     */
+    private function keyOwner(string $keyId, array $keyDoc, string $pem): ?string
+    {
+        $strip = static fn (string $u): string => trim(strtok($u, '#') ?: $u);
+        $keyUrl = $strip($keyId);
+        $owner = $strip((string) ($keyDoc['publicKey']['owner'] ?? $keyDoc['id'] ?? $keyUrl));
+
+        if ($owner === '' || ! self::sameOrigin($owner, $keyUrl)) {
+            return null;
+        }
+        $docId = $strip((string) ($keyDoc['id'] ?? $keyUrl));
+        if (strcasecmp($owner, $keyUrl) === 0 && strcasecmp($docId, $owner) === 0) {
+            return $owner;
+        }
+
+        $ownerDoc = $owner === $keyUrl ? $keyDoc : $this->fetcher->fetchActor($owner);
+        if (! is_array($ownerDoc) || strcasecmp($strip((string) ($ownerDoc['id'] ?? '')), $owner) !== 0) {
+            return null;
+        }
+        $listedId = (string) ($ownerDoc['publicKey']['id'] ?? '');
+        $listedPem = (string) ($ownerDoc['publicKey']['publicKeyPem'] ?? '');
+        if (strcasecmp($listedId, $keyId) !== 0 || trim($listedPem) !== trim($pem)) {
+            return null;
+        }
+
+        return $owner;
+    }
+
+    private static function sameOrigin(string $a, string $b): bool
+    {
+        $pa = parse_url($a);
+        $pb = parse_url($b);
+        if (! is_array($pa) || ! is_array($pb)) {
+            return false;
+        }
+
+        return strtolower($pa['scheme'] ?? '') === strtolower($pb['scheme'] ?? '')
+            && strtolower($pa['host'] ?? '') === strtolower($pb['host'] ?? '')
+            && ($pa['port'] ?? null) === ($pb['port'] ?? null)
+            && ($pa['host'] ?? '') !== '';
     }
 
     /** Adapter for a live request: normalise headers, then verify the parts. */
