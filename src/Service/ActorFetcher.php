@@ -51,6 +51,9 @@ class ActorFetcher
                 'timeout' => 8,
                 'headers' => $headers,
                 'http_errors' => false,
+                // The guard checked THIS host only; a redirect could point anywhere
+                // (loopback, metadata), so redirects are never followed.
+                'allow_redirects' => false,
             ] + $this->pinOption($url, $pin));
             if ($res->getStatusCode() >= 200 && $res->getStatusCode() < 300) {
                 $decoded = json_decode((string) $res->getBody(), true);
@@ -87,6 +90,7 @@ class ActorFetcher
                 'headers' => $headers,
                 'body' => $body,
                 'http_errors' => false,
+                'allow_redirects' => false, // see fetchActor()
             ] + $this->pinOption($inbox, $pin));
 
             return $res->getStatusCode();
@@ -110,6 +114,10 @@ class ActorFetcher
         $parts = parse_url($url);
         $host = trim((string) ($parts['host'] ?? ''), '[]');
         $port = $parts['port'] ?? 443;
+
+        if (str_contains($pin, ':')) {
+            $pin = '['.$pin.']'; // curl wants an IPv6 address bracketed
+        }
 
         return ['curl' => [CURLOPT_RESOLVE => ["$host:$port:$pin"]]];
     }
