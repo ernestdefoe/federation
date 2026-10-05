@@ -7,10 +7,14 @@ use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\FederationFollower;
 use ErnestDefoe\Federation\Job\DeliverActivity;
 use ErnestDefoe\Federation\PostFederationMeta;
+use Flarum\Discussion\Discussion;
 use Flarum\Post\CommentPost;
 use Flarum\Post\Event\Posted;
+use Flarum\Post\Event\Saving;
+use Flarum\User\Guest;
 use Flarum\User\User;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Events\Dispatcher as Events;
 use Illuminate\Support\Carbon;
 
@@ -28,6 +32,11 @@ class InboxProcessor
 {
     private const MAX_URI = 500;
 
+    /** Inbound replies accepted per remote host per window. */
+    private const REPLIES_PER_HOST = 30;
+
+    private const WINDOW = 600; // seconds
+
     public function __construct(
         protected SignatureVerifier $verifier,
         protected ActorFetcher $fetcher,
@@ -37,7 +46,17 @@ class InboxProcessor
         protected Events $events,
         protected Bus $bus,
         protected Fed $fed,
+        protected Cache $cache,
     ) {}
+
+    /** Count one hit against $key; false once the window's limit is passed. */
+    private function withinLimit(string $key, int $limit): bool
+    {
+        $bucket = 'federation:limit:'.$key.':'.intdiv(time(), self::WINDOW);
+        $this->cache->add($bucket, 0, self::WINDOW);
+
+        return $this->cache->increment($bucket) <= $limit;
+    }
 
     /** @param array<string,string> $headers lower-cased header name => value */
     public function process(string $method, string $requestTarget, array $headers, string $rawBody, ?int $targetUserId, int $receivedAt): void
@@ -142,12 +161,15 @@ class InboxProcessor
             return;
         }
         $discussion = $this->documents->discussionFromUrl($obj['inReplyTo'] ?? null);
-        // Gate exactly like outbound federation: never inject a reply into a
-        // private or hidden discussion just because a remote guessed its id.
+        // Gate exactly like outbound federation: only discussions a guest can
+        // read (never private, hidden, restricted-tag or unapproved ones just
+        // because a remote guessed an id), and never a locked one.
         if (! $discussion
             || ! $this->settings->enabled()
             || $discussion->is_private
-            || $discussion->hidden_at !== null) {
+            || $discussion->hidden_at !== null
+            || $discussion->is_locked
+            || ! Discussion::query()->whereVisibleTo(new Guest)->whereKey($discussion->id)->exists()) {
             return;
         }
         $objectId = (string) ($obj['id'] ?? $activity['id'] ?? '');
@@ -157,8 +179,16 @@ class InboxProcessor
         if (PostFederationMeta::where('federated_object', $objectId)->exists()) {
             return; // already imported
         }
+        // Flood guard: a remote server gets a bounded number of replies per
+        // window, however many accounts it signs as.
+        if (! $this->withinLimit('replies:'.strtolower((string) parse_url($claimed, PHP_URL_HOST)), self::REPLIES_PER_HOST)) {
+            return;
+        }
         $author = $this->remoteUsers->upsert($claimed);
-        if (! $author) {
+        // The mirror account is an ordinary member to Flarum, so the forum's
+        // own reply permission decides (tag permissions, flarum/lock, a
+        // moderator suspending the mirror, …).
+        if (! $author || $author->cannot('reply', $discussion)) {
             return;
         }
         $text = Federation::htmlToText((string) ($obj['content'] ?? ''));
@@ -176,6 +206,15 @@ class InboxProcessor
         $post->user_id = $author->id;
         $post->created_at = $created;
         $post->setContentAttribute($text, $author);
+        $post->setRelation('discussion', $discussion);
+        // Let moderation extensions see the post as if it were posted through
+        // the API: flarum/approval holds it for approval when the mirror may not
+        // reply without approval, word filters run, and so on.
+        try {
+            $this->events->dispatch(new Saving($post, $author, ['attributes' => ['content' => $text]]));
+        } catch (\Throwable) {
+            return; // a moderation listener refused it
+        }
         $post->save();
         PostFederationMeta::create(['post_id' => $post->id, 'federated_object' => $objectId]);
 

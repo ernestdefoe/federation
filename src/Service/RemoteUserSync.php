@@ -5,6 +5,7 @@ namespace ErnestDefoe\Federation\Service;
 use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\FederationUserData;
 use Flarum\User\User;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
@@ -18,7 +19,37 @@ class RemoteUserSync
     public function __construct(
         protected ActorFetcher $fetcher,
         protected Fed $fed,
+        protected Cache $cache,
     ) {}
+
+    /** New mirror accounts per remote host, and in total, per window. */
+    private const NEW_MIRRORS_PER_HOST = 10;
+
+    private const NEW_MIRRORS_TOTAL = 100;
+
+    private const WINDOW = 3600; // seconds
+
+    /**
+     * Every new remote voice becomes a local user row. Without a cap one server
+     * (or many throwaway ones) could mint unlimited accounts on the forum.
+     */
+    private function mayCreateMirror(string $actorUri): bool
+    {
+        $slot = intdiv(time(), self::WINDOW);
+        $host = strtolower((string) parse_url($actorUri, PHP_URL_HOST));
+        foreach (['host:'.$host => self::NEW_MIRRORS_PER_HOST, 'all' => self::NEW_MIRRORS_TOTAL] as $key => $limit) {
+            $bucket = 'federation:new-mirrors:'.$key.':'.$slot;
+            $this->cache->add($bucket, 0, self::WINDOW);
+            if ($this->cache->get($bucket) >= $limit) {
+                return false;
+            }
+        }
+        foreach (['host:'.$host, 'all'] as $key) {
+            $this->cache->increment('federation:new-mirrors:'.$key.':'.$slot);
+        }
+
+        return true;
+    }
 
     /** Find-or-create a local "federated" user mirroring a remote actor. */
     public function upsert(string $actorUri): ?User
@@ -28,6 +59,9 @@ class RemoteUserSync
             return null;
         }
         $existing = FederationUserData::where('federated_actor', $actorUri)->first()?->user;
+        if (! $existing && ! $this->mayCreateMirror($actorUri)) {
+            return null; // too many new remote accounts this window
+        }
         $doc = $this->fetcher->fetchActor($actorUri);
         if (! $doc && ! $existing) {
             return null;
