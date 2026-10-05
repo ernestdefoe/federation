@@ -27,6 +27,8 @@ class SignatureVerifier
      */
     private const MAX_CLOCK_SKEW_SECONDS = 300;
 
+    private const REQUIRED_HEADERS = ['(request-target)', 'host', 'date', 'digest'];
+
     public function __construct(
         protected ActorFetcher $fetcher,
     ) {}
@@ -47,6 +49,31 @@ class SignatureVerifier
             return null;
         }
 
+        // The parts that make a signature mean something must all be covered:
+        // which endpoint (request-target), which server (host — else a delivery
+        // to another forum replays here), when (date — else a captured request
+        // replays forever with a fresh unsigned Date) and what (digest — else the
+        // body can be swapped). Every mainstream server signs all four.
+        $signed = array_map('strtolower', preg_split('/\s+/', trim($params['headers'])) ?: []);
+        foreach (self::REQUIRED_HEADERS as $required) {
+            if (! in_array($required, $signed, true)) {
+                return null;
+            }
+        }
+
+        // The signed digest must match the body actually received.
+        $expected = 'SHA-256='.base64_encode(hash('sha256', $rawBody, true));
+        if (! hash_equals($expected, $headers['digest'] ?? '')) {
+            return null;
+        }
+
+        // Anti-replay: the Date is signed (required above), so reject anything
+        // outside the window. Both cheap checks run before the actor fetch so a
+        // junk request never causes an outbound request.
+        if (! $this->dateIsFresh($headers['date'] ?? '', $receivedAt)) {
+            return null;
+        }
+
         $actor = $this->fetcher->fetchActor($params['keyId']);
         $pem = $actor['publicKey']['publicKeyPem'] ?? null;
         if (! $pem) {
@@ -54,29 +81,13 @@ class SignatureVerifier
         }
 
         $lines = [];
-        foreach (explode(' ', $params['headers']) as $h) {
+        foreach ($signed as $h) {
             $lines[] = $h === '(request-target)'
                 ? '(request-target): '.strtolower($method).' '.$requestTarget
                 : $h.': '.($headers[strtolower($h)] ?? '');
         }
 
-        // Inbox POSTs always carry a body; REQUIRE it to be integrity-covered.
-        // Without a signed digest a proxy/TLS-terminator could swap the activity
-        // (Follow→Delete, actor URIs, …) while the signature still verifies.
-        if (! str_contains($params['headers'], 'digest')) {
-            return null;
-        }
-        $expected = 'SHA-256='.base64_encode(hash('sha256', $rawBody, true));
-        if (! hash_equals($expected, $headers['digest'] ?? '')) {
-            return null;
-        }
-
         if (openssl_verify(implode("\n", $lines), base64_decode($params['signature']), $pem, OPENSSL_ALGO_SHA256) !== 1) {
-            return null;
-        }
-
-        // Anti-replay: the Date is signed, so reject anything outside the window.
-        if (! $this->dateIsFresh($headers['date'] ?? '', $receivedAt)) {
             return null;
         }
 
