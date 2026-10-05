@@ -31,7 +31,7 @@ class WebfingerController extends AbstractFederationController
         }
 
         $resolved = $this->settings->resolveUsername($m[1]);
-        if ($resolved === null) {
+        if ($resolved === null || ($resolved['type'] === 'user' && ! $this->memberIsPublic($resolved['user']))) {
             throw new RouteNotFoundException;
         }
 

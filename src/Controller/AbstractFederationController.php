@@ -6,7 +6,9 @@ use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Http\Exception\RouteNotFoundException;
+use Flarum\User\Guest;
 use Flarum\User\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -49,16 +51,35 @@ abstract class AbstractFederationController implements RequestHandlerInterface
         return (int) ($request->getAttribute('routeParameters')['id'] ?? 0);
     }
 
-    /** Resolve the {id} route parameter to a non-federated local member, or 404. */
+    /**
+     * Resolve the {id} route parameter to a local member a logged-out visitor
+     * could see, or 404. Without the visibility check these unauthenticated
+     * endpoints listed every account by id — suspended and unconfirmed ones
+     * too, and on forums guests cannot view at all.
+     */
     protected function localMember(ServerRequestInterface $request): User
     {
         $id = $this->routeId($request);
         $user = $id > 0 ? User::find($id) : null;
-        if (! $user || $this->fed->isFederated($user)) {
+        if (! $user || ! $this->memberIsPublic($user)) {
             throw new RouteNotFoundException;
         }
 
         return $user;
+    }
+
+    /** A real (non-federated), confirmed, unsuspended member guests can see. */
+    protected function memberIsPublic(User $user): bool
+    {
+        if ($this->fed->isFederated($user) || ! $user->is_email_confirmed) {
+            return false;
+        }
+        $suspendedUntil = $user->getAttribute('suspended_until'); // flarum/suspend, when installed
+        if ($suspendedUntil && Carbon::parse($suspendedUntil)->isFuture()) {
+            return false;
+        }
+
+        return User::query()->whereVisibleTo(new Guest)->whereKey($user->id)->exists();
     }
 
     /**
