@@ -209,9 +209,10 @@ pushed to their timeline (that's how the fediverse works).
 the fediverse immediately. Disabling the extension stops everything; the data
 columns/table remain until you uninstall.
 
-## Discuss
+## Support
 
-Questions, ideas and release notes: [Federation on discuss.flarum.org](https://discuss.flarum.org/d/39465-federation-made-with-ai).
+- **Flarum community:** [Federation (ActivityPub) on discuss.flarum.org](https://discuss.flarum.org/d/39465-federation-made-with-ai)
+- **Bug reports:** [GitHub issues](https://github.com/ernestdefoe/federation/issues)
 
 ## License
 
