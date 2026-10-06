@@ -12,6 +12,7 @@
   ],
   "homepage": "https://github.com/ernestdefoe/federation",
   "support": {
+    "forum": "https://discuss.flarum.org/d/39465-federation-made-with-ai",
     "issues": "https://github.com/ernestdefoe/federation/issues",
     "source": "https://github.com/ernestdefoe/federation"
   },
