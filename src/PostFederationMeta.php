@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property int $post_id
  * @property string|null $federated_object
+ * @property-read Post|null $post
  */
 class PostFederationMeta extends AbstractModel
 {
@@ -25,6 +26,7 @@ class PostFederationMeta extends AbstractModel
     /** Explicit allow-list — written from inbound federated payloads. */
     protected $fillable = ['post_id', 'federated_object'];
 
+    /** @return BelongsTo<Post, $this> */
     public function post(): BelongsTo
     {
         return $this->belongsTo(Post::class, 'post_id');

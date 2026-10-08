@@ -7,6 +7,7 @@ use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\User\Guest;
+use Illuminate\Database\Eloquent\Builder;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -69,8 +70,12 @@ class OutboxController extends AbstractFederationController
         return $this->ap($doc);
     }
 
-    /** Discussions a guest can read, authored by real (non-federated) members. */
-    protected function discussions()
+    /**
+     * Discussions a guest can read, authored by real (non-federated) members.
+     *
+     * @return Builder<Discussion>
+     */
+    protected function discussions(): Builder
     {
         return Discussion::query()
             ->whereVisibleTo(new Guest)

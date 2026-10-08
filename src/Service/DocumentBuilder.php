@@ -165,7 +165,7 @@ class DocumentBuilder
     {
         $out = [];
         try {
-            foreach ($discussion->tags as $t) {
+            foreach ($discussion->getAttribute('tags') as $t) {
                 $slug = (string) ($t->slug ?? '');
                 $name = preg_replace('/[^\p{L}\p{N}]+/u', '', $slug);
                 if ($name === '') {
@@ -237,7 +237,7 @@ class DocumentBuilder
             'type' => 'Person',
             'preferredUsername' => $this->settings->userUsername($user),
             'name' => $this->settings->displayName($user),
-            'summary' => $user->bio ? e(Str::limit(strip_tags((string) $user->bio), 400)) : '',
+            'summary' => $user->getAttribute('bio') ? e(Str::limit(strip_tags((string) $user->getAttribute('bio')), 400)) : '',
             'manuallyApprovesFollowers' => false,
             'discoverable' => true,
             'indexable' => true,
@@ -381,7 +381,7 @@ class DocumentBuilder
     }
 
     /** A Create activity for a local reply (a Note inReplyTo the discussion). */
-    public function createActivityForReply(Post $post, Discussion $discussion): array
+    public function createActivityForReply(CommentPost $post, Discussion $discussion): array
     {
         $author = $this->authorOf($post->user);
         $actor = $author ? $this->settings->userActorUrl($author) : $this->settings->actorUrl();

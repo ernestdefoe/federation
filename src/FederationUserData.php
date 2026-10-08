@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $federated_actor
  * @property string|null $federated_handle
  * @property string|null $federated_inbox
+ * @property-read User|null $user
  */
 class FederationUserData extends AbstractModel
 {
@@ -36,6 +37,7 @@ class FederationUserData extends AbstractModel
 
     protected $casts = ['is_federated' => 'bool'];
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');

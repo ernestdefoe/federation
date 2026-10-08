@@ -10,6 +10,7 @@ use Flarum\Post\Post;
 use Flarum\User\Guest;
 use Flarum\User\User;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
+use Illuminate\Database\Eloquent\Builder;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -58,7 +59,7 @@ class Federation
         return $this->settings->enabled()
             && ! $discussion->is_private
             && $discussion->hidden_at === null
-            && $discussion->is_approved !== false
+            && $discussion->getAttribute('is_approved') !== false
             && $discussion->user
             && ! $this->fed->isFederated($discussion->user)
             && Discussion::query()->whereVisibleTo(new Guest)->whereKey($discussion->id)->exists();
@@ -67,7 +68,7 @@ class Federation
     /** A post federates only when a logged-out visitor could read it. */
     public function postIsPublic(Post $post): bool
     {
-        return $post->is_approved !== false
+        return $post->getAttribute('is_approved') !== false
             && $post->hidden_at === null
             && Post::query()->whereVisibleTo(new Guest)->whereKey($post->id)->exists();
     }
@@ -145,9 +146,9 @@ class Federation
      * tens of thousands of followers never materialises every inbox in memory or
      * serialises a giant array into one queue payload.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder  $followerQuery  scoped FederationFollower query
+     * @param  Builder<FederationFollower>  $followerQuery  scoped FederationFollower query
      */
-    private function deliverToFollowers($followerQuery, array $activity, ?int $signerId): void
+    private function deliverToFollowers(Builder $followerQuery, array $activity, ?int $signerId): void
     {
         $followerQuery->chunkById(self::DELIVERY_CHUNK, function ($rows) use ($activity, $signerId) {
             $inboxes = $this->inboxesFor($rows);

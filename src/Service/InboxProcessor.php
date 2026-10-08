@@ -168,7 +168,7 @@ class InboxProcessor
             || ! $this->settings->enabled()
             || $discussion->is_private
             || $discussion->hidden_at !== null
-            || $discussion->is_locked
+            || $discussion->getAttribute('is_locked')
             || ! Discussion::query()->whereVisibleTo(new Guest)->whereKey($discussion->id)->exists()) {
             return;
         }

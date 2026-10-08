@@ -29,17 +29,17 @@ class Settings
         protected Fed $fed,
     ) {}
 
-    public function get(string $key, $default = null)
+    public function get(string $key, mixed $default = null): mixed
     {
         return $this->settings->get(self::PREFIX.$key, $default);
     }
 
-    public function set(string $key, $value): void
+    public function set(string $key, mixed $value): void
     {
         $this->settings->set(self::PREFIX.$key, $value);
     }
 
-    public function raw(string $key, $default = null)
+    public function raw(string $key, mixed $default = null): mixed
     {
         return $this->settings->get($key, $default);
     }
