@@ -12,6 +12,12 @@ use Illuminate\Database\Schema\Builder;
  * Defensive: if pre-existing duplicates make the unique index impossible, keep
  * the plain index rather than failing the whole upgrade.
  *
+ * 🚨 Decided by looking, never by trying and catching. PostgreSQL runs each
+ * migration in a transaction, and one failed statement aborts the transaction
+ * even when PHP catches the exception: dropping the unique index that a fresh
+ * install already has (on PostgreSQL a unique constraint, which DROP INDEX
+ * refuses) failed the whole migration, and federation could not be enabled.
+ *
  * Raw schema builder on purpose: Flarum\Database\Migration only wraps table and
  * column operations (createTable/addColumns/dropColumns) — it has no helper for
  * swapping an index's uniqueness — so there is nothing to delegate to here. The
@@ -22,33 +28,43 @@ $idx = 'fed_user_data_ap_username_index';
 
 return [
     'up' => function (Builder $schema) use ($idx) {
-        try {
-            $schema->table('federation_user_data', fn (Blueprint $t) => $t->dropIndex($idx));
-        } catch (\Throwable $e) {
-            // not present
+        if ($schema->hasIndex('federation_user_data', $idx, 'unique')) {
+            return; // a fresh install: 000004 already made it unique
         }
-        try {
-            $schema->table('federation_user_data', fn (Blueprint $t) => $t->unique('ap_username', $idx));
-        } catch (\Throwable $e) {
-            // duplicates exist — fall back to a plain index so resolution still works
-            try {
+
+        $hasPlain = $schema->hasIndex('federation_user_data', $idx);
+        $duplicates = $schema->getConnection()->table('federation_user_data')
+            ->select('ap_username')
+            ->whereNotNull('ap_username')
+            ->groupBy('ap_username')
+            ->havingRaw('COUNT(*) > 1')
+            ->exists();
+
+        if ($duplicates) {
+            // Keep (or add) the plain index so resolution still works.
+            if (! $hasPlain) {
                 $schema->table('federation_user_data', fn (Blueprint $t) => $t->index('ap_username', $idx));
-            } catch (\Throwable $e2) {
-                // already present
             }
+
+            return;
         }
+
+        $schema->table('federation_user_data', function (Blueprint $t) use ($idx, $hasPlain) {
+            if ($hasPlain) {
+                $t->dropIndex($idx);
+            }
+            $t->unique('ap_username', $idx);
+        });
     },
 
     'down' => function (Builder $schema) use ($idx) {
-        try {
-            $schema->table('federation_user_data', fn (Blueprint $t) => $t->dropIndex($idx));
-        } catch (\Throwable $e) {
-            // not present
+        if (! $schema->hasIndex('federation_user_data', $idx, 'unique')) {
+            return;
         }
-        try {
-            $schema->table('federation_user_data', fn (Blueprint $t) => $t->index('ap_username', $idx));
-        } catch (\Throwable $e) {
-            // already present
-        }
+
+        $schema->table('federation_user_data', function (Blueprint $t) use ($idx) {
+            $t->dropUnique($idx);
+            $t->index('ap_username', $idx);
+        });
     },
 ];
