@@ -11,9 +11,7 @@ const t = (k: string) => app.translator.trans(`${KEY}.admin.settings.${k}`);
 
 /** Build the live @user@host handle from the current settings + this host. */
 function currentHandle(): string {
-  const raw =
-    (app.data.settings as Record<string, string>)[`${KEY}.username`] ||
-    (app.forum.attribute<string>('title') ?? 'community');
+  const raw = (app.data.settings as Record<string, string>)[`${KEY}.username`] || (app.forum.attribute<string>('title') ?? 'community');
   const slug = raw
     .toString()
     .toLowerCase()
@@ -38,12 +36,7 @@ export const extend = [
       placeholder: 'community',
     }))
     .customSetting(
-      () =>
-        m('.Form-group', [
-          m('label', t('handle_label')),
-          m('.helpText', t('handle_help')),
-          m('pre', m('code', currentHandle())),
-        ]),
+      () => m('.Form-group', [m('label', t('handle_label')), m('.helpText', t('handle_help')), m('pre', m('code', currentHandle()))]),
       30
     ),
 ];
