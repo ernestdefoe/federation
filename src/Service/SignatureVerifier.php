@@ -33,7 +33,8 @@ class SignatureVerifier
     public function __construct(
         protected ActorFetcher $fetcher,
         protected Cache $cache,
-    ) {}
+    ) {
+    }
 
     /**
      * @param  array<string,string>  $headers  lower-cased header name => value

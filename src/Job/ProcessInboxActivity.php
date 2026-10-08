@@ -40,7 +40,8 @@ class ProcessInboxActivity implements ShouldQueue
         public string $rawBody,
         public ?int $targetUserId = null,
         public int $receivedAt = 0,
-    ) {}
+    ) {
+    }
 
     public function handle(InboxProcessor $processor): void
     {

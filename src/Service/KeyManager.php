@@ -28,7 +28,8 @@ class KeyManager
     public function __construct(
         protected Settings $settings,
         protected ConnectionResolverInterface $db,
-    ) {}
+    ) {
+    }
 
     /** @return array{0:string,1:string} [publicPem, privatePem] */
     public function generateKeypair(): array
@@ -197,6 +198,7 @@ class KeyManager
 
         $config = $this->settings->config();
         $material = '';
+
         try {
             $material = json_encode($config['database'] ?? null) ?: '';
         } catch (\Throwable $e) {

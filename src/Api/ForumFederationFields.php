@@ -14,7 +14,8 @@ class ForumFederationFields
 {
     public function __construct(
         protected Settings $settings,
-    ) {}
+    ) {
+    }
 
     /** @return array<int, \Tobyz\JsonApiServer\Schema\Field\Field> */
     public function __invoke(): array

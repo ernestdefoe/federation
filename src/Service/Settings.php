@@ -27,7 +27,8 @@ class Settings
         protected Config $config,
         protected ConnectionResolverInterface $db,
         protected Fed $fed,
-    ) {}
+    ) {
+    }
 
     public function get(string $key, mixed $default = null): mixed
     {

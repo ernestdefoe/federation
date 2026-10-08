@@ -47,7 +47,8 @@ class InboxProcessor
         protected Bus $bus,
         protected Fed $fed,
         protected Cache $cache,
-    ) {}
+    ) {
+    }
 
     /** Count one hit against $key; false once the window's limit is passed. */
     private function withinLimit(string $key, int $limit): bool
@@ -195,6 +196,7 @@ class InboxProcessor
         if ($text === '') {
             return;
         }
+
         try {
             $created = isset($obj['published']) ? Carbon::parse($obj['published']) : Carbon::now();
         } catch (\Throwable) {
@@ -207,6 +209,7 @@ class InboxProcessor
         $post->created_at = $created;
         $post->setContentAttribute($text, $author);
         $post->setRelation('discussion', $discussion);
+
         // Let moderation extensions see the post as if it were posted through
         // the API: flarum/approval holds it for approval when the mirror may not
         // reply without approval, word filters run, and so on.

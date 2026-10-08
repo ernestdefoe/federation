@@ -14,7 +14,8 @@ class HttpSigner
     public function __construct(
         protected Settings $settings,
         protected KeyManager $keys,
-    ) {}
+    ) {
+    }
 
     /** @return array<string,string> headers to send (Host, Date, [Digest], Signature) */
     public function signHeaders(?User $signer, string $method, string $url, ?string $body = null): array

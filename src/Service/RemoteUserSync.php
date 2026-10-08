@@ -20,7 +20,8 @@ class RemoteUserSync
         protected ActorFetcher $fetcher,
         protected Fed $fed,
         protected Cache $cache,
-    ) {}
+    ) {
+    }
 
     /** New mirror accounts per remote host, and in total, per window. */
     private const NEW_MIRRORS_PER_HOST = 10;
@@ -79,6 +80,7 @@ class RemoteUserSync
                 'is_email_confirmed' => true,
                 'joined_at' => \Carbon\Carbon::now(),
             ]);
+
             try {
                 $user->save();
             } catch (QueryException $e) {

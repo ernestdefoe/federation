@@ -21,7 +21,8 @@ class DocumentBuilder
         protected Settings $settings,
         protected KeyManager $keys,
         protected Fed $fed,
-    ) {}
+    ) {
+    }
 
     /** The author who federates a discussion/post, or null = the community. */
     public function authorOf(?User $user): ?User
@@ -86,6 +87,7 @@ class DocumentBuilder
         }
         // RSAPublicKey ::= SEQUENCE { modulus INTEGER, publicExponent INTEGER }  (PKCS#1, RFC 8017)
         $der = $this->derSeq($this->derInt($d['rsa']['n']).$this->derInt($d['rsa']['e']));
+
         // multicodec rsa-pub (0x1205) varint = 0x85 0x24, then multibase base58btc ('z').
         return 'z'.$this->base58("\x85\x24".$der);
     }
@@ -115,7 +117,7 @@ class DocumentBuilder
         }
         $out = '';
         while ($n > 0) {
-            $out = chr($n & 0xff).$out;
+            $out = chr($n & 0xFF).$out;
             $n >>= 8;
         }
 
@@ -164,6 +166,7 @@ class DocumentBuilder
     private function hashtagsFor(Discussion $discussion): array
     {
         $out = [];
+
         try {
             foreach ($discussion->getAttribute('tags') ?? [] as $t) {
                 $slug = (string) ($t->slug ?? '');
@@ -392,6 +395,7 @@ class DocumentBuilder
         $published = ($post->created_at ?? \Carbon\Carbon::now())->toAtomString();
 
         $body = '';
+
         try {
             $body = $post->formatContent();
         } catch (\Throwable $e) {

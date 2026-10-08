@@ -44,7 +44,8 @@ class Federation
         protected LoggerInterface $log,
         protected Bus $bus,
         protected Fed $fed,
-    ) {}
+    ) {
+    }
 
     /**
      * Only discussions a logged-out visitor could read, started by a real
@@ -133,7 +134,8 @@ class Federation
             if ($author) {
                 $this->deliverToFollowers(
                     FederationFollower::query()->where('user_id', $author->id),
-                    $activity, $author->id
+                    $activity,
+                    $author->id
                 );
             }
         } catch (\Throwable $e) {

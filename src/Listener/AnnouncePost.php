@@ -21,7 +21,8 @@ class AnnouncePost
 {
     public function __construct(
         protected Federation $federation,
-    ) {}
+    ) {
+    }
 
     /** @param Posted|\Flarum\Approval\Event\PostWasApproved $event */
     public function handle(object $event): void

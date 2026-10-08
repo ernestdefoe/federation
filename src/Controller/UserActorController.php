@@ -2,8 +2,8 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
-use ErnestDefoe\Federation\Service\DocumentBuilder;
 use ErnestDefoe\Federation\Fed;
+use ErnestDefoe\Federation\Service\DocumentBuilder;
 use ErnestDefoe\Federation\Service\Settings;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Laminas\Diactoros\Response\EmptyResponse;

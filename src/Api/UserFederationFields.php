@@ -17,7 +17,8 @@ class UserFederationFields
     public function __construct(
         protected Settings $settings,
         protected Fed $fed,
-    ) {}
+    ) {
+    }
 
     /** @return array<int, \Tobyz\JsonApiServer\Schema\Field\Field> */
     public function __invoke(): array

@@ -35,7 +35,8 @@ class DeliverActivity implements ShouldQueue
         public array $activity,
         public array $inboxes,
         public ?int $signerId = null,
-    ) {}
+    ) {
+    }
 
     public function handle(ActorFetcher $fetcher): void
     {

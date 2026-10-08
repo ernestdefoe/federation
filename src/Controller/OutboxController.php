@@ -2,8 +2,8 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
-use ErnestDefoe\Federation\Service\DocumentBuilder;
 use ErnestDefoe\Federation\Fed;
+use ErnestDefoe\Federation\Service\DocumentBuilder;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\User\Guest;

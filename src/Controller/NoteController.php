@@ -2,9 +2,9 @@
 
 namespace ErnestDefoe\Federation\Controller;
 
+use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Federation;
 use ErnestDefoe\Federation\Service\DocumentBuilder;
-use ErnestDefoe\Federation\Fed;
 use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Discussion\Discussion;
 use Flarum\Http\Exception\RouteNotFoundException;

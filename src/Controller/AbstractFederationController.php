@@ -8,8 +8,8 @@ use ErnestDefoe\Federation\Service\Settings;
 use Flarum\Http\Exception\RouteNotFoundException;
 use Flarum\User\Guest;
 use Flarum\User\User;
-use Illuminate\Support\Carbon;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Laminas\Diactoros\Response\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -24,7 +24,8 @@ abstract class AbstractFederationController implements RequestHandlerInterface
     public function __construct(
         protected Settings $settings,
         protected Fed $fed,
-    ) {}
+    ) {
+    }
 
     /** Abort with 404 when federation is switched off in admin. */
     protected function guard(): void

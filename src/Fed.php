@@ -35,7 +35,7 @@ class Fed
 
     public function isFederated(?User $user): bool
     {
-        return (bool) ($user?->federationData?->is_federated);
+        return (bool) $user?->federationData?->is_federated;
     }
 
     public function apUsername(User $user): ?string

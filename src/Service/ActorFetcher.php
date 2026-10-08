@@ -26,7 +26,8 @@ class ActorFetcher
         protected Cache $cache,
         protected LoggerInterface $log,
         protected Client $http,
-    ) {}
+    ) {
+    }
 
     /** Fetch (and cache) a remote actor document. Accepts an actor or key URL. */
     public function fetchActor(string $url): ?array
@@ -47,6 +48,7 @@ class ActorFetcher
         }
 
         $data = null;
+
         try {
             $headers = $this->signer->signHeaders(null, 'get', $url);
             $headers['Accept'] = Federation::CTYPE;
