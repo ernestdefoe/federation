@@ -165,7 +165,7 @@ class DocumentBuilder
     {
         $out = [];
         try {
-            foreach ($discussion->getAttribute('tags') as $t) {
+            foreach ($discussion->getAttribute('tags') ?? [] as $t) {
                 $slug = (string) ($t->slug ?? '');
                 $name = preg_replace('/[^\p{L}\p{N}]+/u', '', $slug);
                 if ($name === '') {
