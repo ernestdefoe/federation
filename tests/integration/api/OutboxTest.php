@@ -115,6 +115,19 @@ class OutboxTest extends FederationTestCase
         $db->disableQueryLog();
         $this->assertSame(200, $response->getStatusCode());
 
-        return count($db->getQueryLog());
+        /*
+         * 🚨 Core's CollectGarbage middleware deletes expired access, email,
+         * password and registration tokens on a random 2% of requests — four
+         * DELETEs that have nothing to do with the outbox. When the lottery
+         * hit one of the two measured requests, the counts differed by exactly
+         * four (CI: "7 is identical to 11", PHP 8.4 / MySQL 8.4 only). They
+         * are left out of the count. The prefix is matched because CI runs
+         * prefixed databases, and the quotes are optional because each driver
+         * quotes differently.
+         */
+        $prefix = preg_quote($db->getTablePrefix(), '/');
+        $garbage = '/^delete from [`"]?'.$prefix.'(access|email|password|registration)_tokens[`"]?/i';
+
+        return count(array_filter($db->getQueryLog(), fn (array $query) => ! preg_match($garbage, $query['query'])));
     }
 }
