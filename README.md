@@ -141,6 +141,8 @@ From any fediverse server, search for your handle and hit follow:
 ```
 
 A member's handle is shown on their profile card once federation is enabled.
+It comes from their username, not their display name or nickname, so changing a
+nickname never changes a handle. A handle is fixed once it exists.
 
 ## Endpoints
 

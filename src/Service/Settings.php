@@ -95,7 +95,16 @@ class Settings
         return (string) ($user->display_name ?: $user->username);
     }
 
-    /** A member's unique fediverse username (lazy: slug of name, deduped by id). */
+    /**
+     * The handle comes from the username, never the display name: a nickname can
+     * change, be non-Latin, or copy someone else's name, and a handle can't.
+     */
+    private function handleBase(User $user): string
+    {
+        return Str::slug((string) $user->username, '_') ?: 'member';
+    }
+
+    /** A member's unique fediverse username (lazy: slug of username, deduped by id). */
     public function userUsername(User $user): string
     {
         if ($ap = $this->fed->apUsername($user)) {
@@ -111,7 +120,7 @@ class Settings
                 return $data->ap_username;
             }
 
-            $base = Str::slug($this->displayName($user), '_') ?: 'member';
+            $base = $this->handleBase($user);
             $candidate = $base;
             // Only real members hold an ap_username (mirrors leave it null).
             if (strcasecmp($candidate, $this->username()) === 0
@@ -142,7 +151,7 @@ class Settings
             return $ap;
         }
 
-        return Str::slug($this->displayName($user), '_') ?: 'member';
+        return $this->handleBase($user);
     }
 
     public function userActorUrl(User $user): string
