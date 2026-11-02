@@ -234,6 +234,7 @@ class DocumentBuilder
         $url = $this->settings->userActorUrl($user);
 
         $profileUrl = $base.'/u/'.$user->username;
+        $publicKey = $this->keys->userKeys($user)['public']; // one locking transaction, not two
         $doc = [
             '@context' => $this->context(),
             'id' => $url,
@@ -252,9 +253,9 @@ class DocumentBuilder
             'publicKey' => [
                 'id' => $url.'#main-key',
                 'owner' => $url,
-                'publicKeyPem' => $this->keys->userKeys($user)['public'],
+                'publicKeyPem' => $publicKey,
             ],
-            'assertionMethod' => $this->assertionMethod($url, $this->keys->userKeys($user)['public']),
+            'assertionMethod' => $this->assertionMethod($url, $publicKey),
         ];
 
         if ($user->avatar_url) {

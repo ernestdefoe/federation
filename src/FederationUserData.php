@@ -29,11 +29,18 @@ class FederationUserData extends AbstractModel
 
     public $incrementing = false;
 
-    /** Explicit allow-list — data adjacent to untrusted remote payloads. */
+    /**
+     * Explicit allow-list — data adjacent to untrusted remote payloads. The keypair
+     * is deliberately NOT mass-assignable: only KeyManager sets it, property by
+     * property, inside its row lock.
+     */
     protected $fillable = [
-        'user_id', 'ap_username', 'ap_public_key', 'ap_private_key',
+        'user_id', 'ap_username',
         'is_federated', 'federated_actor', 'federated_handle', 'federated_inbox',
     ];
+
+    /** Never serialise the (encrypted) private key into arrays/JSON. */
+    protected $hidden = ['ap_private_key'];
 
     protected $casts = ['is_federated' => 'bool'];
 

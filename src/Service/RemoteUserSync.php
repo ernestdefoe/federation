@@ -38,15 +38,27 @@ class RemoteUserSync
     {
         $slot = intdiv(time(), self::WINDOW);
         $host = strtolower((string) parse_url($actorUri, PHP_URL_HOST));
+        $claimed = [];
+        // Claim a slot with one atomic increment per bucket and judge by its return
+        // value: a separate get()-then-increment() lets concurrent jobs all pass the
+        // check before any of them counts.
         foreach (['host:'.$host => self::NEW_MIRRORS_PER_HOST, 'all' => self::NEW_MIRRORS_TOTAL] as $key => $limit) {
             $bucket = 'federation:new-mirrors:'.$key.':'.$slot;
             $this->cache->add($bucket, 0, self::WINDOW);
-            if ($this->cache->get($bucket) >= $limit) {
+            $count = $this->cache->increment($bucket);
+            if ($count === false) {
+                continue; // cache store can't count: fail open, as before
+            }
+            if ($count > $limit) {
+                // Over the cap: hand back what this call claimed so a refusal
+                // doesn't eat another bucket's allowance.
+                foreach ($claimed as $taken) {
+                    $this->cache->decrement($taken);
+                }
+
                 return false;
             }
-        }
-        foreach (['host:'.$host, 'all'] as $key) {
-            $this->cache->increment('federation:new-mirrors:'.$key.':'.$slot);
+            $claimed[] = $bucket;
         }
 
         return true;
